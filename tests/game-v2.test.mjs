@@ -7,7 +7,7 @@ function game(){const g=new Game({autoSpawn:false,trafficEnabled:false});g.start
 function seeded(seed){let n=seed;return ()=>((n=(n*1664525+1013904223)>>>0)/4294967296);}
 // Seconds until the run ends with nobody touching the controls.
 function contactTime(g){const t=g.time;for(let i=0;i<8*120&&g.phase==='running';i++)g.update(1/120);return g.time-t;}
-const KINDS=['front','rear','battery','cutin'];
+const KINDS=['front','rear','battery'];
 test('raised ceiling, fuel and exhaustion rearm',()=>{const g=game();g.setHeld(true);run(g,1.2);assert.equal(g.altitude,8);assert.ok(Math.abs(g.gas-70)<.1);run(g,5);assert.equal(g.altitude,0);assert.equal(g.thrusting,false);run(g,2);assert.ok(g.gas>50);g.setHeld(false);g.setHeld(true);run(g,.5);assert.ok(g.altitude>3);});
 test('lane changes interpolate and clamp at edges',()=>{const g=game();g.moveLane(1);run(g,.1);assert.ok(g.x>0&&g.x<4);run(g,.3);assert.equal(g.x,4);g.moveLane(1);run(g,.4);assert.equal(g.x,4);g.moveLane(-1);g.moveLane(-1);run(g,.7);assert.equal(g.x,-4);});
 test('pause freezes movement/fuel/score and resume releases input',()=>{const g=game();g.setHeld(true);g.moveLane(1);run(g,.1);g.pause();const a=[g.distance,g.gas,g.x,g.altitude];run(g,10);assert.deepEqual([g.distance,g.gas,g.x,g.altitude],a);g.resume();run(g,1);assert.ok(g.distance>a[0]);assert.equal(g.held,false);});
@@ -19,16 +19,21 @@ for(const kind of KINDS){
  test(`${kind}: open-lane evasion consumes no gas`,()=>{const g=game();const e=g.spawn(kind);run(g,.5);g.moveLane(e.sourceX<0?1:-1);run(g,4);assert.equal(g.phase,'running');assert.equal(g.gas,100);assert.equal(g.dodged,1);});
 }
 test('every hazard gives its cue well before contact',()=>{
- const expected={front:2.4,cutin:2.7,battery:3,rear:3};
+ const expected={front:2.4,battery:3,rear:3};
  for(const kind of KINDS)for(const t of [0,40,10000]){
   const g=game();g.time=t;g.update(1/120);g.spawn(kind);const seconds=contactTime(g);
   assert.ok(seconds>expected[kind]-.25&&seconds<expected[kind]+.35,`${kind} at ${Math.round(g.maxSpeed)} km/h: ${seconds.toFixed(2)} s`);
  }
 });
-test('a cut-in car signals before it moves into the player lane',()=>{
- const g=game();const e=g.spawn('cutin'),car=g.traffic.find(c=>c.id===e.carId),x=car.x;
- run(g,1);assert.equal(car.x,x);assert.equal(car.signal,Math.sign(-x));
- run(g,.5);assert.ok(Math.abs(car.x)<Math.abs(x));assert.equal(e.stage,'merging');
+test('ordinary cars merge in ahead with a turn signal and fair warning, and are not counted as hazards',()=>{
+ const g=new Game({autoSpawn:false,random:()=>0});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
+ const v=g.speed/3.6,speed=v*.7,near=g.addTraffic(1,20,speed),fair=g.addTraffic(1,20+(v-speed)*3.5,speed);
+ g.update(1/120);g.random=()=>.99;
+ assert.equal(near.signal,0,'too close to merge in ahead of the player');assert.equal(fair.signal,-1);
+ const start=g.time;run(g,1);assert.equal(fair.x,4,'signals before moving');
+ run(g,.6);assert.ok(fair.x<4);assert.equal(g.events.length,0);assert.equal(g.warning,null);
+ for(let i=0;i<120*6&&g.phase==='running';i++)g.update(1/120);
+ assert.equal(g.phase,'over');assert.ok(g.time-start>=3,`only ${(g.time-start).toFixed(2)} s from signal to contact`);
 });
 test('the battery SUV brakes with hazards on before the battery drops, then stays put',()=>{
  const g=game();const e=g.spawn('battery'),suv=g.traffic.find(c=>c.id===e.carId);
@@ -66,7 +71,6 @@ test('ordinary lane changes never cut in close ahead of the player',()=>{
  const g=game();g.time=30;g.update(1/120);
  const close=g.addTraffic(1,25,g.speed/3.6*.7),far=g.addTraffic(-1,220,g.speed/3.6*.7);
  assert.equal(g.laneClear(close,0),false);assert.equal(g.laneClear(far,0),true);
- assert.equal(g.laneClear(close,0,true),true,'a deliberate cut-in may target the player lane');
 });
 test('the player crash slides on before the result settles',()=>{
  const g=game();g.time=20;g.update(1/120);g.spawn('front');
