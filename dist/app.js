@@ -7,9 +7,11 @@ const read=(key,fallback)=>{try{return localStorage.getItem(key)??fallback;}catc
 const write=(key,value)=>{try{localStorage.setItem(key,String(value));}catch{/* Storage can be disabled; gameplay is unaffected. */}};
 let best=Math.max(0,Number(read('roadster-best','0'))||0);
 const audio=new AudioEngine(read('roadster-muted','0')==='1');
-let scene, activePointer=null, lastWarning=0, lastDodged=0, lastTime=0, resumeTimer=null, countdownToken=0;
+// Each hazard type is explained once, the first time the player meets it; after that only the road shows it.
+const seenHints=new Set(read('roadster-hints','').split(',').filter(Boolean));
+let scene, activePointer=null, lastWarning=0, hintUntil=0, lastTime=0, resumeTimer=null, countdownToken=0;
 let stage='ready', ended=false, swipe=null;
-const ui={distance:$('distance'),score:$('score'),speed:$('speed'),gas:$('gas-number'),fill:$('gas-fill'),meter:$('gas-meter'),gasNote:$('gas-note'),altitude:$('altitude'),warning:$('warning'),warningText:$('warning-text'),warningHint:$('warning-hint'),mirror:$('mirror-frame'),rear:$('rear-indicator'),feedback:$('feedback'),flight:$('flight-state'),thrust:$('thrust')};
+const ui={distance:$('distance'),score:$('score'),speed:$('speed'),gas:$('gas-number'),fill:$('gas-fill'),meter:$('gas-meter'),gasNote:$('gas-note'),altitude:$('altitude'),hint:$('hint'),hintText:$('hint-text'),mirror:$('mirror-frame'),feedback:$('feedback'),flight:$('flight-state'),thrust:$('thrust')};
 
 function refreshBest(){ $('welcome-best').textContent=`最佳纪录 ${Math.floor(best).toLocaleString()} m`;$('best-hud').textContent=`最佳 ${Math.floor(best).toLocaleString()} m`;}
 function syncSound(){const b=$('sound');b.classList.toggle('muted',audio.muted);b.setAttribute('aria-label',audio.muted?'开启声音':'关闭声音');b.querySelector('span').textContent=audio.muted?'声音关闭':'声音开启';}
@@ -17,7 +19,7 @@ function phase(value){stage=value;swipe=null;$('game-shell').dataset.phase=value
 function release(){activePointer=null;game.setHeld(false);ui.thrust.classList.remove('pressed');}
 function cancelCountdown(){countdownToken++;clearTimeout(resumeTimer);resumeTimer=null;$('countdown').hidden=true;}
 function start(){
-  cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;lastDodged=0;
+  cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;hintUntil=0;
   $('welcome').hidden=true;$('result').hidden=true;$('pause-panel').hidden=true;lastTime=performance.now();
 }
 function pause(){
@@ -35,13 +37,13 @@ function resume(){
   };tick();
 }
 function finish(){
-  if(ended)return;ended=true;release();audio.crash();phase('over');
+  if(ended)return;ended=true;
   const record=game.distance>best;best=Math.max(best,game.distance);write('roadster-best',best);refreshBest();
   $('result-eyebrow').textContent=record?'NEW PERSONAL BEST':'RUN COMPLETE';
   $('result-title').textContent=record?'新的里程碑。':'下一次，更远。';
   $('result-distance').textContent=Math.floor(game.distance).toLocaleString();
   $('result-cause').textContent=game.cause;$('result-score').textContent=game.score.toLocaleString();
-  $('result-speed').textContent=Math.round(game.speed);$('result-best').textContent=`${Math.floor(best).toLocaleString()} m`;
+  $('result-speed').textContent=Math.round(game.maxSpeed);$('result-best').textContent=`${Math.floor(best).toLocaleString()} m`;
   $('result').hidden=false;
 }
 function renderHud(){
@@ -52,11 +54,11 @@ function renderHud(){
   ui.gasNote.textContent=game.exhausted?'气量耗尽 · 松手后落地攒气':game.gas<25?'气量不足 · 注意落地时机':game.thrusting?'喷气飞行 · 持续耗气':game.altitude>.05?'正在下降 · 注意落点':'地面行驶 · 自动攒气';
   ui.flight.querySelector('b').textContent=game.thrusting?'喷气飞行':game.altitude>.05?'正在下降':['左车道','中间车道','右车道'][game.lane+1];
   $('thrust-label').textContent=game.exhausted?'松手攒气':game.thrusting?'松手降落':'按住起飞';
-  const w=game.warning;ui.warning.hidden=!w||game.phase!=='running';
-  if(w){ui.warningText.textContent=w.text;ui.warningHint.textContent=w.stage==='hazards'?'双闪亮起 · 留意弹出方向':w.stage==='braking'?'邻车正在减速停车':w.remaining>.25?'左右滑动避让 · 或按住起飞':'留意落点 · 安全后落地';if(w.id!==lastWarning&&game.phase==='running'){lastWarning=w.id;audio.warn();}}
-  const rear=w?.kind==='rear';ui.mirror.classList.toggle('danger',rear);ui.rear.textContent=rear?'后车快速逼近':'后方安全';
-  ui.feedback.textContent=game.clearFlash>0?'✓ 安全越过':game.time<4&&game.phase==='running'?'左右滑动变道 · 按住起飞':'';
-  if(game.dodged>lastDodged){lastDodged=game.dodged;audio.clear();}
+  const w=game.warning;
+  if(w&&w.id!==lastWarning){lastWarning=w.id;if(!seenHints.has(w.kind)){seenHints.add(w.kind);write('roadster-hints',[...seenHints].join(','));ui.hintText.textContent=w.text;hintUntil=game.clock+3.2;}}
+  ui.hint.hidden=!(game.phase==='running'&&game.clock<hintUntil);
+  ui.mirror.classList.toggle('danger',game.phase==='running'&&game.traffic.some(c=>c.horn&&c.z<0));
+  ui.feedback.textContent=game.time<4&&game.phase==='running'?'左右滑动变道 · 按住起飞':'';
 }
 
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);$('restart-paused').addEventListener('click',start);
@@ -97,8 +99,10 @@ $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();pause();$(
 
 function animate(now){
   const dt=lastTime?Math.min((now-lastTime)/1000,.1):0;lastTime=now;
-  game.update(dt);renderHud();audio.update(game);
-  if(game.phase==='over')finish();
+  game.update(dt);for(const cue of game.cues.splice(0))audio.cue(cue);renderHud();audio.update(game);
+  // On impact the controls drop away while the wreck slides; the result appears once it settles.
+  if(game.phase==='over'&&stage==='running'){release();phase('over');}
+  if(game.phase==='over'&&game.settled)finish();
   scene.render(game,dt);requestAnimationFrame(animate);
 }
 refreshBest();syncSound();
