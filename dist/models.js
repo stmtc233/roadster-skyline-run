@@ -378,13 +378,14 @@ export function createSedan({color,braking=false}={}) {
 const unitBox=boxGeo.toNonIndexed(),unitQuad=new THREE.PlaneGeometry(1,1).toNonIndexed();
 const unitRod=new THREE.CylinderGeometry(.5,.5,1,8).toNonIndexed();
 // Open fender shell arching over the top of a wheel, axis along x.
-const unitArc=new THREE.CylinderGeometry(.5,.5,1,10,1,true,.42,2.3).rotateZ(Math.PI/2).toNonIndexed();
+const unitArc=new THREE.CylinderGeometry(.5,.5,1,8,1,true,.42,2.3).rotateZ(Math.PI/2).toNonIndexed();
 const partMatrix=new THREE.Matrix4(),partQuat=new THREE.Quaternion(),partEuler=new THREE.Euler(),partPos=new THREE.Vector3();
 const partScale=new THREE.Vector3(),partColor=new THREE.Color(),upAxis=new THREE.Vector3(0,1,0),rigs=new Map();
 const TRUCK={
   skin:mat('#dde2e1',.3,.42), post:mat('#c2c9cb',.8,.3), deck:mat('#a2a9aa',.45,.55),
   dark:mat('#1a1f24',.35,.62), grey:mat('#4b535a',.4,.45), glass:mat('#17252e',.72,.08),
-  mirror:mat('#a9bcc6',.95,.05), rim:mat('#c9cdca',.6,.32), lens:mat('#e8e4da',.2,.15),
+  mirror:mat('#a9bcc6',.95,.05), lens:mat('#e8e4da',.2,.15),
+  rim:mat('#c9cdca',.6,.32,{polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-4}),
   fender:mat('#15181b',.1,.72,{side:THREE.DoubleSide}),
   marker:mat('#d88a18',.2,.3,{emissive:'#ff8d00',emissiveIntensity:1.3}),
   // Tape, panel seams and hoses are vertex-coloured; the offset keeps flush decals from z-fighting.
@@ -423,7 +424,7 @@ function kit() {
     link(material,a,b,r,tint) {
       const dir=new THREE.Vector3(b[0]-a[0],b[1]-a[1],b[2]-a[2]),len=dir.length();
       partEuler.setFromQuaternion(partQuat.setFromUnitVectors(upAxis,dir.normalize()));
-      put(material,unitRod,(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2,r*2,len,r*2,partEuler.x,partEuler.y,partEuler.z,tint);
+      put(material,unitBox,(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2,r*2,len,r*2,partEuler.x,partEuler.y,partEuler.z,tint);
     },
     build(parent,name) {
       const cached=rigs.get(name)??[],meshes=new Map();let i=0;
@@ -471,17 +472,20 @@ function decal(parent,text,x,y,z,w,h) {
   }
   const m=mesh(decalGeo,material,parent,x,y,z);m.scale.set(w,h,1);m.castShadow=false;return m;
 }
-const truckTyre=new THREE.CylinderGeometry(.52,.52,.27,12).rotateZ(Math.PI/2).toNonIndexed();
-const dualTyre=merge([[.145,0,0,1,1,1,truckTyre,0,0,0],[-.145,0,0,1,1,1,truckTyre,0,0,0]]);
-const truckRim=merge([[0,0,0,1,1,1,new THREE.CylinderGeometry(.33,.33,.03,12).rotateZ(Math.PI/2).toNonIndexed(),0,0,0],
-  [.045,0,0,1,1,1,new THREE.CylinderGeometry(.15,.11,.09,8).rotateZ(Math.PI/2).toNonIndexed(),0,0,0]]);
+const truckTyre=new THREE.CylinderGeometry(.52,.52,.27,12).rotateZ(Math.PI/2);
+// A dual pair is one drum pinched at the middle: it reads as two tyres for fewer triangles.
+const dualTyre=new THREE.CylinderGeometry(.52,.52,.56,12,2).rotateZ(Math.PI/2);
+for(let i=0,p=dualTyre.attributes.position;i<p.count;i++)if(Math.abs(p.getX(i))<1e-4)p.setXYZ(i,0,p.getY(i)*.9,p.getZ(i)*.9);
+// Steel disc just proud of the tyre wall (its material is offset so it never z-fights) and a hexagonal hub.
+const truckRim=merge([[.004,0,0,1,1,1,new THREE.CircleGeometry(.33,12).rotateY(Math.PI/2).toNonIndexed(),0,0,0],
+  [.035,0,0,1,1,1,new THREE.CylinderGeometry(.15,0,.07,6).rotateZ(Math.PI/2).toNonIndexed(),0,0,0]]);
 // 0.52 m wheels roll as groups; a dual pair shares one tyre mesh and the steel disc faces outward.
 function truckWheels(parent,axles) {
   const result=[];
   for(const [z,x,dual] of axles)for(const side of [-1,1]) {
     const wheel=new THREE.Group();wheel.position.set(side*x,.52,z);parent.add(wheel);
     mesh(dual?dualTyre:truckTyre,M.rubber,wheel);
-    mesh(truckRim,TRUCK.rim,wheel,side*(dual?.285:.14),0,0).rotation.y=side<0?Math.PI:0;
+    mesh(truckRim,TRUCK.rim,wheel,side*(dual?.28:.135),0,0).rotation.y=side<0?Math.PI:0;
     result.push(wheel);
   }
   parent.userData.wheels=result;
@@ -507,7 +511,7 @@ function truckCab(g,k,paint,{front,back,half:hw,roof:t,top,axle,sleeper}) {
     k.box(dark,s*(hw-.4),.92,front+.025,.6,.2,.04);k.box(M.head,s*(hw-.46),.93,front+.004,.4,.1,.008);
     blinker(g,s*(hw-.17),.93,front+.006,.1,.1,.01);k.box(TRUCK.lens,s*(hw-.42),.64,front+.006,.18,.07,.012);
     const x=s*(hw+.003),ry=s*Math.PI/2;
-    k.plane(TRUCK.glass,x,2.53,zf+.74,.84,.7,0,ry);
+    k.plane(TRUCK.glass,x,(2.18+t-.25)/2,zf+.74,.84,t-2.43,0,ry);
     if(sleeper)k.plane(TRUCK.glass,x,2.66,back-.42,.34,.4,0,ry);
     k.quad(GAP,x,(1.2+t-.24)/2,zf+1.34,.016,t-1.44,0,ry);k.quad(GAP,x,(1.2+sill)/2,zf+.18,.016,sill-1.2,0,ry);
     k.box(dark,s*(hw+.01),2.02,zf+1.2,.02,.04,.16);blinker(g,s*(hw+.006),1.7,zf+.42,.012,.07,.2);
@@ -532,7 +536,7 @@ function cargoBox(g,k,red,{from:z0,to:z1,half:hw,ribs,beam,under,number}) {
     k.box(post,0,y,z0+.05,2*hw-.008,h,.1);k.box(post,0,y,z1-.063,2*hw-.008,h,.106);
     for(const s of [-1,1])k.box(post,s*(hw-.022),y,(z0+F)/2,.036,h,F-z0);
   }
-  for(let z=under;z<z1-.2;z+=ribs)k.box(dark,0,1.17,z,2*hw-.12,.1,.08);
+  for(let z=under;z<z1-.2;z+=ribs*1.5)k.box(dark,0,1.17,z,2*hw-.12,.1,.08);
   for(const s of [-1,1]) {
     k.box(post,s*(hw-.03),2.58,z0+.05,.052,2.32,.1);k.box(post,s*(hw-.045),2.58,z1-.063,.082,2.32,.106);
     for(let z=z0+ribs;z<z1-ribs*.6;z+=ribs)k.box(post,s*(hw-.019),2.58,z,.022,2.32,.07);
@@ -540,7 +544,7 @@ function cargoBox(g,k,red,{from:z0,to:z1,half:hw,ribs,beam,under,number}) {
     const side=s*(hw-.003),ry=s*Math.PI/2;
     tape(k,[side,1.32,z0+.12],[side,1.32,z1-.14],Math.round((len-.26)/.5),ry);
     tape(k,[side,3.82,z1-1.06],[side,3.82,z1-.14],2,ry);tape(k,[side,3.72,z1-.063],[side,2.92,z1-.063],2,ry,.07);
-    for(let z=z0+1;z<z1-.8;z+=2.4){k.box(dark,s*(hw-.05),1.19,z,.05,.06,.05);k.box(TRUCK.marker,s*(hw-.025),1.13,z,.03,.07,.11);}
+    for(let z=z0+1;z<z1-.8;z+=3)k.box(TRUCK.marker,s*(hw-.03),1.17,z,.03,.1,.11);
     k.box(TRUCK.marker,s*(hw-.16),3.82,z0-.006,.12,.06,.012);k.box(red,s*(hw-.045),3.66,z1-.005,.06,.1,.01);
     // Rear outline tape on the door frame.
     tape(k,[s*(hw-.045),1.45,F+.001],[s*(hw-.045),3.56,F+.001],5,0,.07);
@@ -550,7 +554,7 @@ function cargoBox(g,k,red,{from:z0,to:z1,half:hw,ribs,beam,under,number}) {
   // Two swing doors: shut line, four lock rods with cams, guides and handles, and the painted number.
   k.quad(GAP,0,2.58,D+.001,.018,2.32);
   for(const x of [-.86,-.3,.3,.86]) {
-    k.rod(post,x,2.58,z1-.028,.032,2.22,.032);k.box(dark,x,2.95,z1-.031,.06,.04,.03);
+    k.box(post,x,2.58,z1-.028,.03,2.22,.03);
     for(const y of [1.5,3.66])k.box(dark,x,y,z1-.031,.075,.07,.03);
     k.box(post,x+Math.sign(x)*.11,2.15,z1-.025,.24,.035,.026);
   }
@@ -582,10 +586,9 @@ export function createTruck() {
     for(const z of [-3.7,-1.3,1.1])k.box(dark,s*1.17,.72,z,.04,.5,.05);
     for(const z of [1.9,3.25])k.arc(TRUCK.fender,s*.92,.52,z,.62,.58);
     k.box(TRUCK.fender,s*.92,1.09,2.575,.62,.02,1.35);
-    k.box(M.rubber,s*.92,.53,3.9,.5,.66,.02);k.box(dark,s*.92,.88,3.9,.54,.04,.05);
+    k.box(M.rubber,s*.92,.64,3.9,.5,.88,.02);
   }
   k.rod(M.alloy,-.92,.68,-2.5,.56,1,.56,Math.PI/2);
-  for(const z of [-2.85,-2.15])k.rod(dark,-.92,.68,z,.58,.04,.58,Math.PI/2);
   k.box(dark,.9,.72,-2.6,.5,.44,.6);
   for(const s of [-1,1])k.rod(TRUCK.grey,s*.72,.74,.1,.26,1,.26,Math.PI/2);
   for(const z of [1.9,3.25])k.box(dark,0,.52,z,1.6,.14,.14);
@@ -607,22 +610,21 @@ export function createSemi() {
     k.link(TRUCK.decal,[x,2.05,-5.84],[x*1.4,1.62,-5.3],.022,tint);k.link(TRUCK.decal,[x*1.4,1.62,-5.3],[x*1.6,1.5,-4.69],.022,tint);
   }
   k.rod(M.alloy,-.95,.7,-5.15,.6,1.3,.6,Math.PI/2);
-  for(const z of [-5.6,-4.7])k.rod(dark,-.95,.7,z,.62,.04,.62,Math.PI/2);
   k.box(dark,.92,.74,-5.45,.5,.45,.6);k.rod(TRUCK.grey,.92,.66,-4.75,.3,.6,.3,Math.PI/2);
   // Trailer: landing gear (支腿) with its cross shaft and crank, side guards and a tri-axle bogie.
-  k.rod(dark,0,1,-1.4,.05,1.9,.05,0,0,Math.PI/2);k.box(dark,-1.1,.98,-1.4,.16,.03,.03);
+  k.box(dark,0,1,-1.4,1.9,.05,.05);k.box(dark,-1.1,.98,-1.4,.16,.03,.03);
   for(const s of [-1,1]) {
     k.box(dark,s*.45,.87,-4.8,.1,.28,6.5);k.box(paint,s*1.25,2.7,-5.665,.03,2,.41);
     for(const z of [-3.85,-2.5])k.arc(TRUCK.fender,s*.92,.52,z,.62,.58);
     k.box(TRUCK.fender,s*.92,1.09,-3.175,.62,.02,1.35);
-    k.box(M.rubber,s*.92,.53,-1.86,.5,.66,.02);k.box(dark,s*.92,.88,-1.86,.54,.04,.05);
+    k.box(M.rubber,s*.92,.64,-1.86,.5,.88,.02);
     k.box(dark,s*.95,.93,-1.4,.13,.54,.13);k.box(TRUCK.grey,s*.95,.48,-1.4,.09,.42,.09);k.box(dark,s*.95,.27,-1.4,.28,.06,.32);
     k.link(dark,[s*.95,.8,-1.4],[s*.5,1,-.3],.025);
     for(const y of [.52,.82])k.box(TRUCK.post,s*1.235,y,1.35,.04,.08,4.5);
     for(const z of [-.8,1.35,3.5])k.box(dark,s*1.2,.72,z,.04,.5,.05);
     for(const z of [4.25,5.56,6.87])k.arc(TRUCK.fender,s*.95,.52,z,.62,.58);
     k.box(TRUCK.fender,s*.95,1.09,5.56,.62,.02,2.62);
-    k.box(M.rubber,s*.95,.53,7.52,.5,.66,.02);k.box(dark,s*.95,.88,7.52,.54,.04,.05);
+    k.box(M.rubber,s*.95,.64,7.52,.5,.88,.02);
   }
   for(const z of [-3.85,-2.5,4.25,5.56,6.87])k.box(dark,0,.52,z,1.6,.14,.14);
   truckWheels(g,[[-7,1.02,false],[-3.85,.92,true],[-2.5,.92,true],[4.25,.95,true],[5.56,.95,true],[6.87,.95,true]]);
