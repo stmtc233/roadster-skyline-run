@@ -20,14 +20,16 @@
 python -m http.server 4173 --bind 127.0.0.1 --directory dist
 ```
 
-在浏览器访问 http://127.0.0.1:4173/ 。ES 模块需要 HTTP 服务，不能直接双击 HTML 文件运行。部署只需上传 dist 目录中的静态文件，无须构建或在线加载第三方库。
+在浏览器访问 http://127.0.0.1:4173/ 。ES 模块需要 HTTP 服务，不能直接双击 HTML 文件运行。部署只需上传 dist 目录中的静态文件，无须构建。Three.js 通过国内 [BootCDN](https://www.bootcdn.cn/three.js/) 加载，运行时需联网。
+
+Three.js 固定为 0.180.0，统一在 `dist/index.html` 的 import map 中配置。主模块和其依赖的 `three.core.js` 均从同一 CDN、同一版本加载。
 
 ## 文件
 
 - `dist/game.js`：固定步长模拟、起降与燃料、危险生成和碰撞。
 - `dist/scene.js`、`dist/models.js`：三维场景、车辆和后视镜。
 - `dist/app.js`、`dist/audio.js`：触屏界面、暂停、记录和声音。
-- `dist/vendor/`：Three.js 0.180.0 与 MIT 许可证。
+- `dist/vendor/THREE-LICENSE.txt`：Three.js 的 MIT 许可证。
 - `tests/game-v2.test.mjs`：游戏规则测试，运行 `node --test tests/game-v2.test.mjs`。
 
 浏览器需支持 WebGL 2。没有账号、广告或后台数据收集。
