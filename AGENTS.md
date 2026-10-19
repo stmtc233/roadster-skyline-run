@@ -55,7 +55,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 - 崴脚的 MPV 每帧调用 `userData.setBroken(index, amount)`，`amount` 由 `clock - brokenAt` 在 0.3 s 内从 0 到 1；复用到正常车时用 `amount = 0` 复原。拖地时断轮一角向后喷火花。MPV 视图自带一个三角警示牌，只在 `triangle` 为 true 时显示，放在车后 32 m。
 - 玩家影子落在 `floor` 上（站在货车上时在车厢顶）。
 - 矮屏（高度 < 844px）由 compact 镜头逻辑压低视角，保证玩家车留在底部操作区上方。改镜头后至少检查 390×844 和 375×667。
-- 模型接口：`createSedan({color, braking})`、`createSUV()`、`createMPV()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；轿车和货车车头的 `userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，`userData.setBroken` 用于崴脚姿态。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。
+- 模型接口：`createSedan({color, braking})`、`createSUV()`、`createMPV()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；轿车和货车车头的 `userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，`userData.setBroken` 用于崴脚姿态。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。货车的静态部件按材质合并成一个网格，几何体在所有复用的实例之间共享，场景不要 dispose 它们。
 
 ## 输入约定（`dist/app.js`）
 

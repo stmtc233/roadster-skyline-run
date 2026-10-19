@@ -494,8 +494,8 @@ function truckWheels(parent,axles) {
 function truckCab(g,k,paint,{front,back,half:hw,roof:t,top,axle,sleeper}) {
   const zf=front+.08,b=1.12,sill=2.08,rake=.2,dark=TRUCK.dark;
   k.shape(paint,hull([[zf,hw,b,sill,.05],[zf+rake,hw,b,t-.08,.1],[zf+.34,hw,b,t,.14],[back,hw,b,t,.14]]));
-  k.shape(paint,hull([[zf+.36,hw-.1,t-.16,t+.02,.02],[zf+.8,hw-.08,t-.16,top-.2,.12],
-    [zf+1.2,hw-.05,t-.16,top-.03,.15],[back,hw-.03,t-.16,top,.15]]));
+  k.shape(paint,hull([[zf+.36,hw-.1,t-.16,t+.02,.02],[zf+.8,hw-.06,t-.16,top-.2,.12],
+    [zf+1.2,hw-.02,t-.16,top-.03,.15],[back,hw,t-.16,top,.15]]));
   const tilt=Math.atan2(rake,t-.08-sill),glass=Math.hypot(rake,t-.08-sill)-.14;
   k.plane(TRUCK.glass,0,(sill+t-.08)/2+.012*Math.sin(tilt),zf+rake/2-.012*Math.cos(tilt),2*hw-.32,glass,tilt,Math.PI);
   k.box(dark,0,t-.03,zf+.1,2*hw-.24,.04,.28,.1);
