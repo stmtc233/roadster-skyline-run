@@ -107,6 +107,10 @@ function cabin(parent, material, sections) {
   const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
   geo.setIndex(indices);geo.computeVertexNormals();return mesh(geo,material,parent);
 }
+function tail(parent) {
+  const m=mat('#ff263c',.05,.2,{emissive:'#ff1830',emissiveIntensity:1.1});m.userData.base=1.1;
+  parent.userData.brakeLights=[];return m;
+}
 function hazard(parent,x,y,z,w,h,d) {
   const amber=mat('#c37608',.18,.22,{emissive:'#ff9400',emissiveIntensity:0});
   const light=strip(parent,amber,x,y,z,w,h,d);light.name='amber indicator';
@@ -171,6 +175,7 @@ export function createMPV() {
   const glazing=mat('#16232e',.48,.13,{side:THREE.DoubleSide});
   const trim=mat('#d6d2bc',.87,.19,{side:THREE.DoubleSide});
   const arch=mat('#11171b',.2,.5,{side:THREE.DoubleSide});
+  const head=M.head.clone(),red=tail(g);g.userData.headLight=head;
   // 5.495 m body, 2.006 m beam, 1.85 m roof: low nose and long sliding-door cabin.
   loft([{z:-2.7475,w:.84,b:.23,t:1.03,r:.58},{z:-2.56,w:.976,b:.21,t:1.12,r:.64},
     {z:-1.87,w:1.003,b:.20,t:1.19,r:.70},{z:.5,w:1.003,b:.20,t:1.20,r:.72},
@@ -212,13 +217,13 @@ export function createMPV() {
   edge(g,trim,[0,.735,-2.788],[0,1.005,-2.788],.005);
   for(const side of [-1,1]) {
     strip(g,M.black,side*.68,1.085,-2.692,.47,.09,.09);
-    strip(g,M.head,side*.68,1.105,-2.742,.44,.026,.025);
+    strip(g,head,side*.68,1.105,-2.742,.44,.026,.025);
     round(g,trim,side*.866,.875,-2.677,.14,.39,.08,.035);
     round(g,M.black,side*.866,.879,-2.727,.108,.35,.035,.025);
-    for(const y of [.77,.87,.97])round(g,M.head,side*.867,y,-2.75,.047,.063,.018,.012);
+    for(const y of [.77,.87,.97])round(g,head,side*.867,y,-2.75,.047,.063,.018,.012);
     hazard(g,side*.889,.87,-2.758,.022,.30,.018);
     round(g,M.black,side*.64,.375,-2.70,.43,.14,.07,.025);
-    strip(g,M.head,side*.64,.39,-2.747,.34,.022,.025);
+    strip(g,head,side*.64,.39,-2.747,.34,.022,.025);
     strip(g,trim,side*.64,.32,-2.746,.44,.023,.025);
   }
   box(g,M.black,0,.35,-2.733,.77,.21,.045);
@@ -229,10 +234,10 @@ export function createMPV() {
   strip(g,gold,0,1.76,2.40,1.64,.055,.31);
   for(const side of [-1,1]) {
     strip(g,M.black,side*.817,1.02,2.69,.16,.60,.05);
-    strip(g,M.red,side*.817,1.04,2.722,.058,.53,.03);
+    g.userData.brakeLights.push(strip(g,red,side*.817,1.04,2.722,.058,.53,.03));
     hazard(g,side*.86,.81,2.724,.045,.15,.03);
   }
-  strip(g,M.red,0,1.29,2.694,1.60,.024,.035);
+  g.userData.brakeLights.push(strip(g,red,0,1.29,2.694,1.60,.024,.035));
   strip(g,trim,0,.37,2.72,1.68,.028,.025);badge(g,'V800',0,.87,2.741,.44,.13);
   wheels(g,-1.77,1.68,.956,.395);
   for(const wheel of g.userData.wheels) {
@@ -257,7 +262,7 @@ export function createSUV() {
   const g=new THREE.Group();g.name='iCAR 03T red and black SUV';
   const paint=mat('#d52332',.47,.27), black=mat('#111a20',.35,.34);
   const glazing=mat('#182932',.48,.17,{side:THREE.DoubleSide});
-  const arch=mat('#182127',.20,.51,{side:THREE.DoubleSide});
+  const arch=mat('#182127',.20,.51,{side:THREE.DoubleSide}),red=tail(g);
   // Faceted shoulders, high hood and nearly vertical cabin keep its boxy stance.
   cabin(g,paint,[{z:-2.27,w:.86,b:.35,t:1.24,r:.70},{z:-2.02,w:.98,b:.30,t:1.27,r:.80},
     {z:-1.13,w:.99,b:.29,t:1.29,r:.81},{z:1.94,w:.99,b:.32,t:1.26,r:.81},{z:2.20,w:.91,b:.37,t:1.24,r:.76}]);
@@ -312,7 +317,7 @@ export function createSUV() {
   box(g,M.darkAlloy,0,1.11,2.48,.70,.59,.025);badge(g,'iCAR',0,1.11,2.50,.43,.14);
   for(const side of [-1,1]) {
     round(g,black,side*.78,1.0,2.24,.15,.53,.07,.025);
-    for(const y of [.84,.94,1.04,1.14])strip(g,M.red,side*.78,y,2.283,.055,.071,.025);
+    for(const y of [.84,.94,1.04,1.14])g.userData.brakeLights.push(strip(g,red,side*.78,y,2.283,.055,.071,.025));
     hazard(g,side*.84,.97,2.285,.025,.27,.025);
   }
   wheels(g,-1.40,1.40,.98,.405);return g;
@@ -321,8 +326,8 @@ export function createSUV() {
 export function createSedan({color,braking=false}={}) {
   const g=new THREE.Group();g.name=braking?'braking sedan':'traffic sedan';
   const paint=color===undefined?M.champagne:mat(color,.56,.29);
-  const brake=mat('#bc1427',.08,.23,{emissive:'#ff1830',emissiveIntensity:braking?3.6:.35});
-  g.userData.brakeLights=[];
+  const brake=mat('#bc1427',.08,.23,{emissive:'#ff1830',emissiveIntensity:braking?3.6:.35});brake.userData.base=.35;
+  g.userData.brakeLights=[];g.userData.paint=paint;
   round(g,paint,0,.56,0,1.83,.55,4.56,.18);
   loft([{z:-1.18,w:.74,b:.67,t:.73,r:.4},{z:-.52,w:.71,b:.72,t:1.36,r:.46},
     {z:.65,w:.72,b:.72,t:1.37,r:.47},{z:1.35,w:.73,b:.68,t:.77,r:.4}],M.glass,g);
@@ -331,6 +336,7 @@ export function createSedan({color,braking=false}={}) {
     box(g,paint,side*.72,1.04,.18,.06,.59,.11);
     g.userData.brakeLights.push(strip(g,brake,side*.64,.75,2.28,.48,.12,.07));
     strip(g,M.head,side*.63,.64,-2.26,.46,.07,.06);
+    hazard(g,side*.83,.62,-2.25,.12,.06,.06);hazard(g,side*.66,.635,2.285,.36,.045,.05);
   }
   g.userData.brakeLights.push(strip(g,brake,0,.76,2.29,.46,.035,.055));
   round(g,M.black,0,.32,2.27,1.65,.13,.1,.04);

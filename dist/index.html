@@ -23,9 +23,9 @@
       <div class="scene-shade"></div>
       <div id="loading" class="loading"><span class="loader"></span><span>正在准备公路…</span></div>
       <div class="hud" id="hud">
-        <div class="hud-top"><div class="distance"><span class="hud-caption">行驶距离 <span class="live-dot"></span></span><div><strong id="distance">0</strong><span class="unit">m</span></div></div><div class="score"><span class="hud-caption">分数</span><strong id="score">0</strong></div><button id="pause" class="icon-button" aria-label="暂停游戏"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div>
-        <div class="second-row"><div id="mirror-frame" class="mirror-frame"><div id="mirror-view"></div><span class="mirror-label">REAR VIEW</span><span id="rear-indicator">后方安全</span></div><div class="telemetry"><div><strong id="speed">140</strong><span>km/h</span></div><span id="best-hud">最佳 0 m</span></div></div>
-        <div id="warning" class="warning" role="status" aria-live="polite" hidden><span class="warning-icon">!</span><div><strong id="warning-text"></strong><small id="warning-hint">按住起飞 · 越过危险</small></div><span class="warning-arrow">↑</span></div>
+        <div class="hud-top"><div class="distance"><span class="hud-caption">行驶距离 <span class="live-dot"></span></span><div><strong id="distance">0</strong><span class="unit">m</span></div></div><div class="telemetry"><div><strong id="speed">140</strong><span>km/h</span></div><span>分数 <b id="score">0</b> · <span id="best-hud">最佳 0 m</span></span></div><button id="pause" class="icon-button" aria-label="暂停游戏"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div>
+        <div class="mirror-mount"><div id="mirror-frame" class="mirror-frame"><div id="mirror-view" role="img" aria-label="车内后视镜"></div></div></div>
+        <div id="hint" class="hint" role="status" aria-live="polite" hidden><span>新情况</span><b id="hint-text"></b></div>
         <div id="feedback" class="feedback" aria-live="polite"></div>
         <div id="flight-state" class="flight-state"><span></span><b>地面行驶</b></div>
       </div>
