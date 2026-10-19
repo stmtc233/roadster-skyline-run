@@ -90,6 +90,7 @@ test('the player can land on a truck roof, ride it while regaining gas, and drop
  g.altitude=5;g.gas=40;run(g,.4);
  assert.equal(g.floor,3.9);assert.equal(g.altitude,3.9);
  run(g,1);assert.equal(g.phase,'running');assert.equal(g.altitude,3.9);assert.ok(g.gas>60,'gas recovers on the roof');
+ assert.ok(!truck.brake&&!truck.signal,'the truck carries the player without braking for them');
  g.moveLane(1);run(g,1.5);assert.equal(g.floor,0);assert.equal(g.altitude,0);assert.equal(g.phase,'running');
  const h=game();h.addTraffic(0,40,0,'semi');h.setHeld(true);run(h,.3);h.setHeld(false);run(h,3);
  assert.equal(h.phase,'over');assert.match(h.cause,/大货车/,'too low to reach the deck');

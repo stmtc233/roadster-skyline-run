@@ -155,7 +155,8 @@ export class Game {
   // Wrecks, loose batteries and cars braking to a halt are treated as already stopped, as a driver would.
   for(const list of [this.traffic,this.batteries])for(const o of list)if(o!==c&&o.z>c.z&&inPath(c,o)){const g=o.z-c.z-(o.length+c.length)/2;if(g<gap){gap=g;nearest=o;}}
   if(nearest)Object.assign(LEAD,{gap,speed:nearest.speed,stopping:nearest.mode==='crashed'||nearest.mode==='broken'||nearest.mode==='loose'||(nearest.mode==='brake'&&nearest.brakeTo===0)});
-  if(c.z<0&&(Math.abs(this.x-c.x)<2.4||Math.abs(this.x-c.lane*4)<2.4)){const g=-c.z-(BODY.player.length+c.length)/2;if(g<gap){gap=g;Object.assign(LEAD,{gap,speed:v,stopping:this.phase==='over'});}}
+  // The player counts only when low enough to hit; a car passing beneath a flying player, or carrying one on its roof, drives on.
+  if(c.z<0&&this.altitude+.1<c.height&&(Math.abs(this.x-c.x)<2.4||Math.abs(this.x-c.lane*4)<2.4)){const g=-c.z-(BODY.player.length+c.length)/2;if(g<gap){gap=g;Object.assign(LEAD,{gap,speed:v,stopping:this.phase==='over'});}}
   return gap<Infinity?LEAD:null;
  }
  obstacles(){return [...this.traffic,...this.batteries];}
