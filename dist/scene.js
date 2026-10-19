@@ -63,6 +63,15 @@ export function createScene(canvas) {
     const nozzle=new THREE.Mesh(new THREE.TorusGeometry(.055,.018,5,10),new THREE.MeshStandardMaterial({color:'#a8d7dd',metalness:.8,roughness:.3}));
     nozzle.rotation.x=Math.PI/2;jet.add(nozzle);
   }
+  // Wind streaks ring the chase camera's sides and top, clear of the lanes below, and fade in with pace.
+  const streakMat=new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0,depthWrite:false,toneMapped:false});
+  const streaks=new THREE.InstancedMesh(new THREE.BoxGeometry(.035,.035,1),streakMat,64);
+  streaks.frustumCulled=false;streaks.visible=false;scene.add(streaks);
+  const streakSeeds=[];
+  for(let i=0;i<64;i++) {
+    const angle=THREE.MathUtils.degToRad(-25+(Math.sin(i*7.3)*.5+.5)*95),radius=3.6+(Math.sin(i*3.1)*.5+.5)*6.5,side=i%2?-1:1;
+    streakSeeds.push({dx:side*Math.cos(angle)*radius,dy:Math.sin(angle)*radius,z:i*41.7});
+  }
   const eventViews=new Map(), pools={front:[],rear:[],battery:[]};
   const trafficViews=new Map(),trafficPool=[];
   let canvasRect=null,mirrorRect=null,mirrorElement=null,lastMirrorMeasure=0;
@@ -92,7 +101,7 @@ export function createScene(canvas) {
   function render(state,dt) {
     if(!canvasRect)resize();
     const time=state.time||0,travel=state.distance||0,altitude=Math.max(0,state.altitude||0);
-    const speed=state.speed||0;
+    const pace=state.pace||0;
     const dashOffset=((travel%12)+12)%12;
     for(let i=0;i<132;i++) {
       transform.position.set(i%2===0?-2:2,.007,32-Math.floor(i/2)*12+dashOffset);
@@ -112,7 +121,8 @@ export function createScene(canvas) {
     trees.trunks.instanceMatrix.needsUpdate=trees.crowns.instanceMatrix.needsUpdate=trees.branches.instanceMatrix.needsUpdate=true;
     transform.scale.set(1,1,1);
     for(let i=0;i<markers.length;i++) markers[i].position.z=30-(((i*103-travel)%520+520)%520);
-    if(roadMat.map)roadMat.map.offset.y=(travel/700)%1;
+    // One texture repeat spans 700/repeat.y metres of road, so the asphalt grain moves at true road speed.
+    if(roadMat.map)roadMat.map.offset.y=(travel*roadMat.map.repeat.y/700)%1;
     const px=state.x||0;
     player.position.set(px,altitude,0);
     // The simulation supplies the sole vertical position. Only small pitch changes express thrust.
@@ -160,9 +170,11 @@ export function createScene(canvas) {
     }
     for(const [id,view] of trafficViews)if(!view.seen){scene.remove(view.root);view.root.remove(view.vehicle);trafficPool.push(view.vehicle);view.shadow.geometry.dispose();view.shadow.material.dispose();trafficViews.delete(id);}
     const rise=altitude;
-    camera.position.set(.55+px*.5,5.7+rise*.66,12.5+rise*.14);
-    // A slight speed-dependent field of view conveys pace without changing obstacle geometry.
-    const fov=61+clamp((speed-120)/160,0,1)*5;
+    // As pace builds, the lens widens while the chase camera drops and closes in, with a faint road buzz.
+    // Obstacle geometry is unchanged; only the view of it shifts.
+    const shake=pace*pace*.045;
+    camera.position.set(.55+px*.5+Math.sin(time*43)*shake*.5,5.7-pace*.55+rise*.66+Math.sin(time*61+1.7)*shake,12.5-pace*1.5+rise*.14);
+    const fov=60+pace*15;
     if(Math.abs(camera.fov-fov)>.05){camera.fov=fov;camera.updateProjectionMatrix();}
     const aimY=1.05+rise*.60,normalAim=state.phase==='ready'?-6:-13.5;
     const compact=clamp((844-height)/144,0,1);
@@ -177,6 +189,17 @@ export function createScene(canvas) {
       aimZ=THREE.MathUtils.lerp(normalAim,compactAim,compact);
     }
     camera.lookAt(px*.65,aimY,aimZ);
+    streakMat.opacity=Math.pow(pace,1.5)*.5;streaks.visible=streakMat.opacity>.01;
+    if(streaks.visible) {
+      // Each streak drains into a plane ahead of the camera before wrapping, so none pops in view.
+      const length=2+pace*9;
+      for(let i=0;i<streakSeeds.length;i++) {
+        const seed=streakSeeds[i],head=15-(((seed.z-travel)%130+130)%130),near=Math.min(head,4),visible=Math.max(.001,near-head+length);
+        transform.position.set(camera.position.x+seed.dx,camera.position.y+seed.dy,near-visible/2);transform.scale.set(1,1,visible);
+        transform.updateMatrix();streaks.setMatrixAt(i,transform.matrix);
+      }
+      transform.scale.set(1,1,1);streaks.instanceMatrix.needsUpdate=true;
+    }
     renderer.setScissorTest(false);renderer.setViewport(0,0,width,height);renderer.clear();renderer.render(scene,camera);
     if(!mirrorElement||time-lastMirrorMeasure>.6||time<lastMirrorMeasure) {
       mirrorElement=document.getElementById('mirror-view');mirrorRect=mirrorElement?.getBoundingClientRect()||null;lastMirrorMeasure=time;
@@ -186,8 +209,8 @@ export function createScene(canvas) {
       rearCamera.position.set(px,1.8+rise*.24,-1.8);rearCamera.lookAt(px*.5,1.2,85);
       const aspect=vw/vh;if(Math.abs(rearCamera.aspect-aspect)>.01){rearCamera.aspect=aspect;rearCamera.updateProjectionMatrix();}
       renderer.setScissorTest(true);renderer.setViewport(vx,vy,vw,vh);renderer.setScissor(vx,vy,vw,vh);
-      renderer.clear(true,true,true);const wasVisible=player.visible;player.visible=false;
-      renderer.render(scene,rearCamera);player.visible=wasVisible;renderer.setScissorTest(false);
+      renderer.clear(true,true,true);const wasVisible=player.visible,streaksVisible=streaks.visible;player.visible=streaks.visible=false;
+      renderer.render(scene,rearCamera);player.visible=wasVisible;streaks.visible=streaksVisible;renderer.setScissorTest(false);
       renderer.setViewport(0,0,width,height);
     }
   }
@@ -196,9 +219,18 @@ export function createScene(canvas) {
 
 function asphaltTexture() {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
-  const ctx=canvas.getContext('2d'),data=ctx.createImageData(128,128);
-  let seed=1397;for(let i=0;i<data.data.length;i+=4){seed=(seed*1664525+1013904223)>>>0;const c=174+(seed%35);data.data[i]=c;data.data[i+1]=c+2;data.data[i+2]=c+1;data.data[i+3]=255;}
-  ctx.putImageData(data,0,0);const tex=new THREE.CanvasTexture(canvas);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(5,170);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+  const ctx=canvas.getContext('2d'),data=ctx.createImageData(128,128),noise=new Float32Array(128*128);
+  let seed=1397;const next=()=>(seed=(seed*1664525+1013904223)>>>0)%35;
+  for(let i=0;i<noise.length;i++)noise[i]=next();
+  // Grain is smoothed along the road (canvas rows map to the road's length) so it streaks past at speed.
+  for(let x=0;x<128;x++) {
+    const groove=next()*.3-5;
+    for(let y=0;y<128;y++) {
+      let sum=0;for(let k=-5;k<=5;k++)sum+=noise[((y+k+128)%128)*128+x];
+      const c=Math.round(clamp(191+groove+(sum/11-17)*3,170,212)),i=(y*128+x)*4;data.data[i]=c;data.data[i+1]=c+2;data.data[i+2]=c+1;data.data[i+3]=255;
+    }
+  }
+  ctx.putImageData(data,0,0);const tex=new THREE.CanvasTexture(canvas);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(5,40);tex.colorSpace=THREE.SRGBColorSpace;return tex;
 }
 function makeShadowTexture() {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=64;const ctx=canvas.getContext('2d');

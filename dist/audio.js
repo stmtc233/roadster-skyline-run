@@ -24,8 +24,10 @@ export class AudioEngine {
     const t=this.ctx.currentTime, running=state.phase==='running';
     this.motor.frequency.setTargetAtTime(50+state.speed*.45,t,.15);
     this.motorGain.gain.setTargetAtTime(running?.045:0,t,.08);
-    this.air.gain.setTargetAtTime(running?(state.thrusting?.24:.035):0,t,.05);
-    this.filter.frequency.setTargetAtTime(state.thrusting?1700:550,t,.1);
+    // Road wind swells and brightens with pace; thrust stays the loudest air sound.
+    const pace=state.pace||0;
+    this.air.gain.setTargetAtTime(running?(state.thrusting?.24:.03+pace*.07):0,t,.05);
+    this.filter.frequency.setTargetAtTime(state.thrusting?1700:520+pace*700,t,.1);
   }
   tone(frequency,duration,offset=0){
     if(!this.ctx||!this.master||this.muted)return;

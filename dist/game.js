@@ -1,13 +1,17 @@
 const STEP=1/120;
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+// Launch speed and the top speed each run accelerates toward (km/h); ramp is the time constant in seconds.
+export const SPEED=Object.freeze({start:140,top:400,ramp:28});
 export const WARNINGS=Object.freeze({front:'前车急刹',rear:'后方车辆刹车断裂',battery:'小心！电池弹出'});
 export class Game {
  constructor({random=Math.random,autoSpawn=true,trafficEnabled=true}={}){this.random=random;this.autoSpawn=autoSpawn;this.trafficEnabled=trafficEnabled;this.nextId=1;this.start();this.phase='ready';}
- start(){Object.assign(this,{phase:'running',time:0,distance:0,score:0,speed:120,gas:100,altitude:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,events:[],traffic:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,accumulator:0,clearFlash:0});if(this.trafficEnabled){this.addTraffic(-1,43,27);this.addTraffic(1,70,28);this.addTraffic(0,150,29);}}
+ start(){Object.assign(this,{phase:'running',time:0,distance:0,score:0,speed:SPEED.start,gas:100,altitude:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,events:[],traffic:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,accumulator:0,clearFlash:0});if(this.trafficEnabled){this.addTraffic(-1,43,27);this.addTraffic(1,70,28);this.addTraffic(0,150,29);}}
  setHeld(v){this.held=!!v&&this.phase==='running';if(!this.held)this.exhausted=false;}
  moveLane(direction){if(this.phase==='running')this.lane=clamp(this.lane+Math.sign(direction),-1,1);}
  pause(){if(this.phase!=='running')return;this.setHeld(false);this.thrusting=false;this.phase='paused';this.accumulator=0;}
  resume(){if(this.phase==='paused'){this.phase='running';this.held=false;this.accumulator=0;}}
+ // 0 at launch speed, 1 at top speed; drives speed-dependent camera, scenery and sound.
+ get pace(){return clamp((this.speed-SPEED.start)/(SPEED.top-SPEED.start),0,1);}
  get warning(){const e=this.events.find(e=>!e.resolved);return e?{id:e.id,kind:e.kind,stage:e.stage,text:e.kind==='battery'&&!e.batteryVisible?'邻车停车 · 双闪预警':WARNINGS[e.kind],remaining:Math.max(0,e.contactAt-e.age)}:null;}
  addTraffic(lane,z,speed){const o={id:this.nextId++,x:lane*4,lane,z,speed,width:1.85,length:4.6,height:1.45,color:['#497f9b','#c7c9c1','#a95442','#b7a16f'][Math.floor(this.random()*4)]};this.traffic.push(o);return o;}
  spawn(kind){
@@ -29,7 +33,7 @@ export class Game {
  hit(o){return Math.abs(o.x-this.x)<(1.9+o.width)/2-.14&&Math.abs(o.z)<(4.6+o.length)/2-.12&&this.altitude+.1<o.height;}
  crash(kind){this.phase='over';this.held=false;this.thrusting=false;const label=kind==='rear'?'被后方车辆追尾':kind==='battery'?'撞上弹出的电池':kind==='front'?'撞上急刹车辆':kind==='parked'?'撞上停车车辆':'撞上路人车辆';this.cause=(this.exhausted?'气量耗尽 · ':this.altitude>0?'注意起降高度 · ':'')+label;}
  step(dt){
-  this.time+=dt;this.speed=120+180*(1-Math.exp(-this.time/60));const v=this.speed/3.6;
+  this.time+=dt;this.speed=SPEED.start+(SPEED.top-SPEED.start)*(1-Math.exp(-this.time/SPEED.ramp));const v=this.speed/3.6;
   this.distance+=v*dt;this.score=Math.floor(this.distance/10);this.clearFlash=Math.max(0,this.clearFlash-dt);
   const dx=this.lane*4-this.x;this.x+=Math.sign(dx)*Math.min(Math.abs(dx),13*dt);
   this.thrusting=this.held&&!this.exhausted&&this.gas>0;

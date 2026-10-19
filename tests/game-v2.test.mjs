@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Game} from '../dist/game.js';
+import {Game,SPEED} from '../dist/game.js';
 import {drive} from './pilot.mjs';
 function run(g,s,hz=120){for(let i=0;i<Math.round(s*hz);i++)g.update(1/hz);}
 function game(){const g=new Game({autoSpawn:false,trafficEnabled:false});g.start();return g;}
@@ -8,6 +8,7 @@ test('raised ceiling, fuel and exhaustion rearm',()=>{const g=game();g.setHeld(t
 test('lane changes interpolate and clamp at edges',()=>{const g=game();g.moveLane(1);run(g,.1);assert.ok(g.x>0&&g.x<4);run(g,.3);assert.equal(g.x,4);g.moveLane(1);run(g,.4);assert.equal(g.x,4);g.moveLane(-1);g.moveLane(-1);run(g,.7);assert.equal(g.x,-4);});
 test('pause freezes movement/fuel/score and resume releases input',()=>{const g=game();g.setHeld(true);g.moveLane(1);run(g,.1);g.pause();const a=[g.distance,g.gas,g.x,g.altitude];run(g,10);assert.deepEqual([g.distance,g.gas,g.x,g.altitude],a);g.resume();run(g,1);assert.ok(g.distance>a[0]);assert.equal(g.held,false);});
 test('faster distance scoring is frame-rate independent',()=>{const a=[30,60,120].map(h=>{const g=game();run(g,10,h);return g;});for(const g of a){assert.ok(g.distance>350);assert.ok(g.speed>140&&g.speed<300);assert.equal(g.score,Math.floor(g.distance/10));}assert.ok(Math.abs(a[0].distance-a[2].distance)<.01);});
+test('speed launches briskly and builds toward top speed',()=>{const g=game();assert.equal(g.speed,SPEED.start);assert.equal(g.pace,0);run(g,10);assert.ok(g.speed>210);run(g,10);assert.ok(g.speed>260);run(g,40);assert.ok(g.speed>360&&g.speed<SPEED.top);assert.ok(g.pace>.85&&g.pace<1);});
 for(const kind of ['front','rear','battery']){
  test(`${kind}: ground impact ends run`,()=>{const g=game();g.spawn(kind);run(g,4);assert.equal(g.phase,'over');assert.ok(g.cause);const d=g.distance;run(g,2);assert.equal(g.distance,d);});
  test(`${kind}: flight clears obstacle`,()=>{const g=game();g.spawn(kind);run(g,1.05);g.setHeld(true);run(g,2.4);g.setHeld(false);run(g,1.5);assert.equal(g.phase,'running');assert.equal(g.dodged,1);});
@@ -32,10 +33,10 @@ test('ordinary traffic does not spawn inside a special vehicle at high speed',()
  assert.equal(g.traffic.length,0,'candidate ordinary car overlaps the visible braking sedan');
 });
 
-test('300 km/h collision cannot tunnel through obstacles at 30, 60 or 120 Hz',()=>{
+test('top-speed collision cannot tunnel through obstacles at 30, 60 or 120 Hz',()=>{
  for(const kind of ['front','rear','battery','traffic']) {
   const impacts=[30,60,120].map(hz=>{
-   const g=game();g.time=10000;g.speed=300;
+   const g=game();g.time=10000;g.speed=SPEED.top;
    if(kind==='traffic')g.addTraffic(0,15,0);else g.spawn(kind);
    run(g,4,hz);assert.equal(g.phase,'over',`${kind} at ${hz} Hz`);return g.time;
   });
