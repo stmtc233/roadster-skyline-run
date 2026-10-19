@@ -1,4 +1,4 @@
-import {Game} from './game.js';
+import {Game,HINTS} from './game.js';
 import {AudioEngine} from './audio.js';
 
 const $=id=>document.getElementById(id);
@@ -46,16 +46,20 @@ function finish(){
   $('result-speed').textContent=Math.round(game.maxSpeed);$('result-best').textContent=`${Math.floor(best).toLocaleString()} m`;
   $('result').hidden=false;
 }
+// Each hint is shown once, the first time the player meets that situation.
+function hint(kind,text){if(seenHints.has(kind))return;seenHints.add(kind);write('roadster-hints',[...seenHints].join(','));ui.hintText.textContent=text;hintUntil=game.clock+3.2;}
 function renderHud(){
   ui.distance.textContent=Math.floor(game.distance).toLocaleString();ui.score.textContent=game.score.toLocaleString();
   ui.speed.textContent=Math.round(game.speed);ui.gas.textContent=Math.ceil(game.gas);ui.fill.style.width=`${game.gas}%`;
   ui.meter.setAttribute('aria-valuenow',Math.round(game.gas));ui.meter.classList.toggle('low',game.gas<25);
   ui.altitude.textContent=`${game.altitude.toFixed(1)} m`;
-  ui.gasNote.textContent=game.exhausted?'气量耗尽 · 松手后落地攒气':game.gas<25?'气量不足 · 注意落地时机':game.thrusting?'喷气飞行 · 持续耗气':game.altitude>.05?'正在下降 · 注意落点':'地面行驶 · 自动攒气';
-  ui.flight.querySelector('b').textContent=game.thrusting?'喷气飞行':game.altitude>.05?'正在下降':['左车道','中间车道','右车道'][game.lane+1];
+  const aloft=game.altitude-game.floor>.05,onTruck=!aloft&&game.floor>0;
+  ui.gasNote.textContent=game.exhausted?'气量耗尽 · 松手后落地攒气':game.gas<25?'气量不足 · 注意落地时机':game.thrusting?'喷气飞行 · 持续耗气':aloft?'正在下降 · 注意落点':onTruck?'踩在货车车厢上 · 自动攒气':'地面行驶 · 自动攒气';
+  ui.flight.querySelector('b').textContent=game.thrusting?'喷气飞行':aloft?'正在下降':onTruck?'货车车厢上':['左车道','中间车道','右车道'][game.lane+1];
   $('thrust-label').textContent=game.exhausted?'松手攒气':game.thrusting?'松手降落':'按住起飞';
   const w=game.warning;
-  if(w&&w.id!==lastWarning){lastWarning=w.id;if(!seenHints.has(w.kind)){seenHints.add(w.kind);write('roadster-hints',[...seenHints].join(','));ui.hintText.textContent=w.text;hintUntil=game.clock+3.2;}}
+  if(w&&w.id!==lastWarning){lastWarning=w.id;hint(w.kind,w.text);}
+  else if(game.phase==='running'&&game.clock>=hintUntil&&!seenHints.has('truck')&&game.traffic.some(c=>c.deck&&c.z>40&&c.z<160))hint('truck',HINTS.truck);
   ui.hint.hidden=!(game.phase==='running'&&game.clock<hintUntil);
   ui.mirror.classList.toggle('danger',game.phase==='running'&&game.traffic.some(c=>c.horn&&c.z<0));
   ui.feedback.textContent=game.time<4&&game.phase==='running'?'左右滑动变道 · 按住起飞':'';

@@ -42,6 +42,7 @@ export class AudioEngine {
     if(!this.ctx||!this.master||this.muted)return;
     const near=Math.max(.12,1-Math.hypot(x,z)/200);
     if(type==='screech')this.burst('bandpass',2600,.6,.22*near);
+    else if(type==='scrape'){this.tone(85,.3,0,.4*near);this.burst('bandpass',1500,1.8,.32*near);this.burst('bandpass',3400,1.2,.12*near);}
     else if(type==='eject'){this.burst('lowpass',900,.25,.3*near);this.tone(150,.2,0,.25*near);}
     else if(type==='crash'){this.burst('lowpass',1100,.55,.45*near);this.tone(70,.45,0,.35*near);}
     else if(type==='impact'){this.burst('lowpass',1500,.9,.6);this.tone(60,.7,0,.45);this.tone(110,.5,.03,.3);}

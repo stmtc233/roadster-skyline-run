@@ -169,8 +169,36 @@ export function createRoadster() {
   return g;
 }
 
+// A snapped suspension arm: the wheel's foot kicks out from under the arch and the body corner settles onto it.
+// Knuckles carry camber and toe, so the scene can keep rolling the inner wheel groups in userData.wheels.
+function brokenSuspension(g,body) {
+  const knuckles=g.userData.wheels.map(wheel=>{
+    const knuckle=new THREE.Group();knuckle.position.copy(wheel.position);wheel.position.set(0,0,0);
+    g.add(knuckle);knuckle.add(wheel);return knuckle;
+  });
+  const base=knuckles.map(knuckle=>knuckle.position.clone()),scale=g.userData.wheels[0].scale.x,radius=.33*scale,half=.105*scale;
+  // Roll is exaggerated for the chase camera; the body pivots over the diagonal, whose corner lifts about 10 cm.
+  const camber=.6,toe=.16,out=.1,back=.09,roll=.09,pitch=.024;
+  // index follows userData.wheels (0 front-left, 1 front-right, 2 rear-left, 3 rear-right); amount 0 restores the intact car.
+  g.userData.setBroken=(index,amount)=>{
+    for(let i=0;i<knuckles.length;i++){knuckles[i].position.copy(base[i]);knuckles[i].rotation.set(0,0,0);}
+    body.position.set(0,0,0);body.rotation.set(0,0,0);
+    const a=Math.min(1,Math.max(0,amount||0)),knuckle=knuckles[index];if(!a||!knuckle)return;
+    const sx=Math.sign(base[index].x),sz=Math.sign(base[index].z),kick=a*(2-a),fall=a*a,lean=camber*kick;
+    // The wheel kicks out first and rides on its inner shoulder; the body then drops onto it.
+    knuckle.rotation.set(0,-sx*toe*kick,sx*lean);
+    knuckle.position.set(base[index].x+sx*out*kick,base[index].y+radius*(Math.cos(lean)-1)+half*Math.sin(lean),base[index].z+back*kick);
+    // Drop above the wheel, sized so the sill corner past it ends about 5 cm off the road.
+    const drop=sz<0?.143:.156;
+    body.rotation.set(sz*pitch*fall,0,-sx*roll*fall);
+    body.position.y=-(drop-roll-pitch*Math.abs(base[index].z))*fall;
+  };
+}
+
 export function createMPV() {
   const g=new THREE.Group(); g.name='V800 gold and black MPV';
+  // Coachwork sits in its own group so a collapsed corner can tilt it while the wheels stay on the road.
+  const body=new THREE.Group(); body.name='MPV body'; g.add(body);
   const gold=mat('#c8b98b',.72,.25), paint=mat('#111b23',.68,.21);
   const glazing=mat('#16232e',.48,.13,{side:THREE.DoubleSide});
   const trim=mat('#d6d2bc',.87,.19,{side:THREE.DoubleSide});
@@ -179,14 +207,14 @@ export function createMPV() {
   // 5.495 m body, 2.006 m beam, 1.85 m roof: low nose and long sliding-door cabin.
   loft([{z:-2.7475,w:.84,b:.23,t:1.03,r:.58},{z:-2.56,w:.976,b:.21,t:1.12,r:.64},
     {z:-1.87,w:1.003,b:.20,t:1.19,r:.70},{z:.5,w:1.003,b:.20,t:1.20,r:.72},
-    {z:2.40,w:.966,b:.22,t:1.20,r:.67},{z:2.7475,w:.87,b:.27,t:1.16,r:.62}],paint,g);
+    {z:2.40,w:.966,b:.22,t:1.20,r:.67},{z:2.7475,w:.87,b:.27,t:1.16,r:.62}],paint,body);
   loft([{z:-2.69,w:.82,b:1.015,t:1.055,r:.60},{z:-2.43,w:.94,b:1.07,t:1.14,r:.68},
-    {z:-1.93,w:.93,b:1.14,t:1.205,r:.66}],gold,g);
-  cabin(g,gold,[{z:-1.99,w:.925,b:1.17,t:1.23,r:.79},{z:-.87,w:.91,b:1.17,t:1.81,r:.79},
+    {z:-1.93,w:.93,b:1.14,t:1.205,r:.66}],gold,body);
+  cabin(body,gold,[{z:-1.99,w:.925,b:1.17,t:1.23,r:.79},{z:-.87,w:.91,b:1.17,t:1.81,r:.79},
     {z:-.49,w:.92,b:1.17,t:1.85,r:.80},{z:1.75,w:.92,b:1.17,t:1.84,r:.80},
     {z:2.42,w:.90,b:1.17,t:1.76,r:.77},{z:2.64,w:.87,b:1.17,t:1.65,r:.74}]);
   const windshield=[[-.85,1.25,-2.01],[.85,1.25,-2.01],[.77,1.805,-.92],[-.77,1.805,-.92]];
-  panel(g,glazing,windshield);
+  panel(body,glazing,windshield);
   // Slim gold roof rails and the polished surround follow the actual window slope.
   for(const side of [-1,1]) {
     const windows=[
@@ -194,51 +222,52 @@ export function createMPV() {
       [[.925,1.25,-.40],[.828,1.765,-.40],[.828,1.758,1.17],[.925,1.25,1.17]],
       [[.925,1.25,1.25],[.828,1.758,1.25],[.819,1.68,2.28],[.900,1.25,2.45]]
     ];
-    for(const points of windows) panel(g,glazing,points.map(([x,y,z])=>[side*x,y,z]));
+    for(const points of windows) panel(body,glazing,points.map(([x,y,z])=>[side*x,y,z]));
     const outline=[[side*.918,1.235,-1.90],[side*.835,1.773,-.88],
       [side*.834,1.788,1.75],[side*.82,1.708,2.32],[side*.905,1.235,2.48],[side*.918,1.235,-1.90]];
-    for(let i=0;i<outline.length-1;i++)edge(g,trim,outline[i],outline[i+1],.012);
-    strip(g,trim,side*1.008,.36,.15,.018,.024,4.54);
-    strip(g,M.black,side*1.008,.965,.95,.008,.012,2.03); // sliding rail
-    for(const z of [-.43,1.26])edge(g,M.black,[side*1.006,.44,z],[side*1.006,1.16,z],.006);
+    for(let i=0;i<outline.length-1;i++)edge(body,trim,outline[i],outline[i+1],.012);
+    strip(body,trim,side*1.008,.36,.15,.018,.024,4.54);
+    strip(body,M.black,side*1.008,.965,.95,.008,.012,2.03); // sliding rail
+    for(const z of [-.43,1.26])edge(body,M.black,[side*1.006,.44,z],[side*1.006,1.16,z],.006);
     for(const z of [-.62,-.22]) {
-      round(g,M.black,side*1.01,1.03,z,.018,.078,.35,.012);
-      strip(g,trim,side*1.026,1.046,z,.018,.026,.31);
+      round(body,M.black,side*1.01,1.03,z,.018,.078,.35,.012);
+      strip(body,trim,side*1.026,1.046,z,.018,.026,.31);
     }
-    round(g,gold,side*1.074,1.25,-1.35,.26,.15,.34,.05);
-    strip(g,trim,side*1.13,1.22,-1.36,.15,.025,.26);
-    hazard(g,side*1.137,1.226,-1.36,.16,.028,.27);
-    for(const z of [-1.77,1.68])wheelArch(g,arch,side,z,.415);
+    round(body,gold,side*1.074,1.25,-1.35,.26,.15,.34,.05);
+    strip(body,trim,side*1.13,1.22,-1.36,.15,.025,.26);
+    hazard(body,side*1.137,1.226,-1.36,.16,.028,.27);
+    for(const z of [-1.77,1.68])wheelArch(body,arch,side,z,.415);
   }
   // A smooth closed face replaces the old full-height grille.
-  round(g,paint,0,.82,-2.718,1.56,.44,.065,.045);
-  const jewel=mesh(new THREE.OctahedronGeometry(.105,0),trim,g,0,.87,-2.764);
+  round(body,paint,0,.82,-2.718,1.56,.44,.065,.045);
+  const jewel=mesh(new THREE.OctahedronGeometry(.105,0),trim,body,0,.87,-2.764);
   jewel.scale.set(.46,1.35,.20);
-  edge(g,trim,[0,.735,-2.788],[0,1.005,-2.788],.005);
+  edge(body,trim,[0,.735,-2.788],[0,1.005,-2.788],.005);
   for(const side of [-1,1]) {
-    strip(g,M.black,side*.68,1.085,-2.692,.47,.09,.09);
-    strip(g,head,side*.68,1.105,-2.742,.44,.026,.025);
-    round(g,trim,side*.866,.875,-2.677,.14,.39,.08,.035);
-    round(g,M.black,side*.866,.879,-2.727,.108,.35,.035,.025);
-    for(const y of [.77,.87,.97])round(g,head,side*.867,y,-2.75,.047,.063,.018,.012);
-    hazard(g,side*.889,.87,-2.758,.022,.30,.018);
-    round(g,M.black,side*.64,.375,-2.70,.43,.14,.07,.025);
-    strip(g,head,side*.64,.39,-2.747,.34,.022,.025);
-    strip(g,trim,side*.64,.32,-2.746,.44,.023,.025);
+    strip(body,M.black,side*.68,1.085,-2.692,.47,.09,.09);
+    strip(body,head,side*.68,1.105,-2.742,.44,.026,.025);
+    round(body,trim,side*.866,.875,-2.677,.14,.39,.08,.035);
+    round(body,M.black,side*.866,.879,-2.727,.108,.35,.035,.025);
+    for(const y of [.77,.87,.97])round(body,head,side*.867,y,-2.75,.047,.063,.018,.012);
+    hazard(body,side*.889,.87,-2.758,.022,.30,.018);
+    round(body,M.black,side*.64,.375,-2.70,.43,.14,.07,.025);
+    strip(body,head,side*.64,.39,-2.747,.34,.022,.025);
+    strip(body,trim,side*.64,.32,-2.746,.44,.023,.025);
   }
-  box(g,M.black,0,.35,-2.733,.77,.21,.045);
-  for(const x of [-.30,-.15,0,.15,.30])box(g,M.darkAlloy,x,.35,-2.761,.018,.17,.018);
-  strip(g,trim,0,.25,-2.73,1.7,.023,.035);
-  round(g,M.black,0,.56,-2.759,.50,.15,.02,.008);badge(g,'V800',0,.56,-2.774,.42,.13);
-  panel(g,glazing,[[-.78,1.27,2.66],[-.70,1.65,2.65],[.70,1.65,2.65],[.78,1.27,2.66]]);
-  strip(g,gold,0,1.76,2.40,1.64,.055,.31);
+  box(body,M.black,0,.35,-2.733,.77,.21,.045);
+  for(const x of [-.30,-.15,0,.15,.30])box(body,M.darkAlloy,x,.35,-2.761,.018,.17,.018);
+  strip(body,trim,0,.25,-2.73,1.7,.023,.035);
+  round(body,M.black,0,.56,-2.759,.50,.15,.02,.008);badge(body,'V800',0,.56,-2.774,.42,.13);
+  panel(body,glazing,[[-.78,1.27,2.66],[-.70,1.65,2.65],[.70,1.65,2.65],[.78,1.27,2.66]]);
+  strip(body,gold,0,1.76,2.40,1.64,.055,.31);
   for(const side of [-1,1]) {
-    strip(g,M.black,side*.817,1.02,2.69,.16,.60,.05);
-    g.userData.brakeLights.push(strip(g,red,side*.817,1.04,2.722,.058,.53,.03));
-    hazard(g,side*.86,.81,2.724,.045,.15,.03);
+    strip(body,M.black,side*.817,1.02,2.69,.16,.60,.05);
+    g.userData.brakeLights.push(strip(body,red,side*.817,1.04,2.722,.058,.53,.03));
+    hazard(body,side*.86,.81,2.724,.045,.15,.03);
   }
-  g.userData.brakeLights.push(strip(g,red,0,1.29,2.694,1.60,.024,.035));
-  strip(g,trim,0,.37,2.72,1.68,.028,.025);badge(g,'V800',0,.87,2.741,.44,.13);
+  g.userData.brakeLights.push(strip(body,red,0,1.29,2.694,1.60,.024,.035));
+  strip(body,trim,0,.37,2.72,1.68,.028,.025);badge(body,'V800',0,.87,2.741,.44,.13);
+  g.userData.hazardLights=body.userData.hazardLights;
   wheels(g,-1.77,1.68,.956,.395);
   for(const wheel of g.userData.wheels) {
     const side=Math.sign(wheel.position.x);
@@ -255,6 +284,7 @@ export function createMPV() {
     vents.setAttribute('normal',new THREE.Float32BufferAttribute(ventNormals,3));mesh(vents,M.darkAlloy,wheel);
     const hub=mesh(new THREE.CylinderGeometry(.065,.065,.035,16),M.darkAlloy,wheel,side*.154,0,0);hub.rotation.z=Math.PI/2;
   }
+  brokenSuspension(g,body);
   return g;
 }
 
@@ -343,11 +373,288 @@ export function createSedan({color,braking=false}={}) {
   wheels(g,-1.42,1.39,.84,.32);return g;
 }
 
+// Heavy trucks. Static parts are merged per material, so a whole rig costs a handful of draw calls;
+// only the wheels, brake lamps and indicators stay separate because the scene animates them.
+const unitBox=boxGeo.toNonIndexed(),unitQuad=new THREE.PlaneGeometry(1,1).toNonIndexed();
+const unitRod=new THREE.CylinderGeometry(.5,.5,1,8).toNonIndexed();
+// Open fender shell arching over the top of a wheel, axis along x.
+const unitArc=new THREE.CylinderGeometry(.5,.5,1,10,1,true,.42,2.3).rotateZ(Math.PI/2).toNonIndexed();
+const partMatrix=new THREE.Matrix4(),partQuat=new THREE.Quaternion(),partEuler=new THREE.Euler(),partPos=new THREE.Vector3();
+const partScale=new THREE.Vector3(),partColor=new THREE.Color(),upAxis=new THREE.Vector3(0,1,0),rigs=new Map();
+const TRUCK={
+  skin:mat('#dde2e1',.3,.42), post:mat('#c2c9cb',.8,.3), deck:mat('#a2a9aa',.45,.55),
+  dark:mat('#1a1f24',.35,.62), grey:mat('#4b535a',.4,.45), glass:mat('#17252e',.72,.08),
+  mirror:mat('#a9bcc6',.95,.05), rim:mat('#c9cdca',.6,.32), lens:mat('#e8e4da',.2,.15),
+  fender:mat('#15181b',.1,.72,{side:THREE.DoubleSide}),
+  marker:mat('#d88a18',.2,.3,{emissive:'#ff8d00',emissiveIntensity:1.3}),
+  // Tape, panel seams and hoses are vertex-coloured; the offset keeps flush decals from z-fighting.
+  decal:mat('#ffffff',.12,.34,{vertexColors:true,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-4}),
+};
+const TAPE=['#d0121c','#f1f3f1'],SEAM='#737b7c',GAP='#20262a';
+
+function merge(list) {
+  const position=[],normal=[],color=[];
+  for(const [x,y,z,w,h,d,unit,rx,ry,rz,tint] of list) {
+    partMatrix.compose(partPos.set(x,y,z),partQuat.setFromEuler(partEuler.set(rx,ry,rz)),partScale.set(w,h,d));
+    const part=unit.clone().applyMatrix4(partMatrix),count=part.attributes.position.count;
+    position.push(...part.attributes.position.array);normal.push(...part.attributes.normal.array);
+    if(tint){partColor.set(tint);for(let i=0;i<count;i++)color.push(partColor.r,partColor.g,partColor.b);}
+    part.dispose();
+  }
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(position,3));
+  geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normal,3));
+  if(color.length)geometry.setAttribute('color',new THREE.Float32BufferAttribute(color,3));
+  return geometry;
+}
+// Collects parts per material; build() merges each set into one mesh, cached per rig so pooled copies share buffers.
+function kit() {
+  const sets=new Map();
+  const put=(material,unit,x,y,z,w,h,d,rx=0,ry=0,rz=0,tint)=>{
+    if(!sets.has(material))sets.set(material,[]);sets.get(material).push([x,y,z,w,h,d,unit,rx,ry,rz,tint]);
+  };
+  return {
+    box:(material,x,y,z,w,h,d,rx,ry,rz)=>put(material,unitBox,x,y,z,w,h,d,rx,ry,rz),
+    rod:(material,x,y,z,w,h,d,rx,ry,rz)=>put(material,unitRod,x,y,z,w,h,d,rx,ry,rz),
+    arc:(material,x,y,z,w,r)=>put(material,unitArc,x,y,z,w,r*2,r*2),
+    plane:(material,x,y,z,w,h,rx,ry)=>put(material,unitQuad,x,y,z,w,h,1,rx,ry),
+    quad:(tint,x,y,z,w,h,rx,ry)=>put(TRUCK.decal,unitQuad,x,y,z,w,h,1,rx,ry,0,tint),
+    shape:(material,geometry)=>put(material,geometry,0,0,0,1,1,1),
+    link(material,a,b,r,tint) {
+      const dir=new THREE.Vector3(b[0]-a[0],b[1]-a[1],b[2]-a[2]),len=dir.length();
+      partEuler.setFromQuaternion(partQuat.setFromUnitVectors(upAxis,dir.normalize()));
+      put(material,unitRod,(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2,r*2,len,r*2,partEuler.x,partEuler.y,partEuler.z,tint);
+    },
+    build(parent,name) {
+      const cached=rigs.get(name)??[],meshes=new Map();let i=0;
+      for(const [material,list] of sets){cached[i]??=merge(list);meshes.set(material,mesh(cached[i++],material,parent));}
+      rigs.set(name,cached);return meshes;
+    },
+  };
+}
+// Flat-shaded shell through sections [z, half width, bottom, top, top-corner chamfer], listed front to back.
+function hull(sections) {
+  const rings=sections.map(([z,w,b,t,c])=>[[-w,b],[-w,t-c],[c-w,t],[w-c,t],[w,t-c],[w,b]].map(([x,y])=>new THREE.Vector3(x,y,z)));
+  const points=[],last=rings.length-1;
+  for(let j=0;j<last;j++)for(let i=0;i<6;i++) {
+    const a=rings[j][i],b=rings[j][(i+1)%6],c=rings[j+1][i],d=rings[j+1][(i+1)%6];points.push(a,c,b,b,c,d);
+  }
+  for(let i=1;i<5;i++)points.push(rings[0][0],rings[0][i],rings[0][i+1],rings[last][0],rings[last][i+1],rings[last][i]);
+  const geometry=new THREE.BufferGeometry().setFromPoints(points);geometry.computeVertexNormals();return geometry;
+}
+// Alternating red/white retroreflective tape (车身反光贴) from a to b, on a face turned by ry (0 rear, ±π/2 sides).
+function tape(k,a,b,n,ry,size=.08) {
+  const vertical=Math.abs(b[1]-a[1])>.01,len=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2])/n;
+  for(let i=0;i<n;i++) {
+    const t=(i+.5)/n;
+    k.quad(TAPE[i%2],a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t,vertical?size:len,vertical?len:size,0,ry);
+  }
+}
+// hazard() with a plain box instead of the rounded extrusion, which costs far more triangles at truck lamp sizes.
+function blinker(parent,x,y,z,w,h,d) {
+  const light=hazard(parent,x,y,z,w,h,d);light.geometry.dispose();light.geometry=boxGeo;light.scale.set(w,h,d);return light;
+}
+const decals=new Map(),decalGeo=new THREE.PlaneGeometry(1,1);
+// Enlarged rear number painted across the doors (fictional, not a plate); skipped without a DOM like badge().
+function decal(parent,text,x,y,z,w,h) {
+  if(typeof document==='undefined')return;
+  let material=decals.get(text);
+  if(!material) {
+    const canvas=document.createElement('canvas');canvas.width=512;canvas.height=160;
+    const ctx=canvas.getContext('2d');if(!ctx)return;
+    ctx.fillStyle='#15191c';ctx.font='900 150px "Arial Black",Impact,"Helvetica Neue",Arial,sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,256,84,500);
+    const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=4;
+    material=new THREE.MeshStandardMaterial({map:texture,transparent:true,depthWrite:false,roughness:.55,metalness:.1,
+      polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-4});
+    decals.set(text,material);
+  }
+  const m=mesh(decalGeo,material,parent,x,y,z);m.scale.set(w,h,1);m.castShadow=false;return m;
+}
+const truckTyre=new THREE.CylinderGeometry(.52,.52,.27,12).rotateZ(Math.PI/2).toNonIndexed();
+const dualTyre=merge([[.145,0,0,1,1,1,truckTyre,0,0,0],[-.145,0,0,1,1,1,truckTyre,0,0,0]]);
+const truckRim=merge([[0,0,0,1,1,1,new THREE.CylinderGeometry(.33,.33,.03,12).rotateZ(Math.PI/2).toNonIndexed(),0,0,0],
+  [.045,0,0,1,1,1,new THREE.CylinderGeometry(.15,.11,.09,8).rotateZ(Math.PI/2).toNonIndexed(),0,0,0]]);
+// 0.52 m wheels roll as groups; a dual pair shares one tyre mesh and the steel disc faces outward.
+function truckWheels(parent,axles) {
+  const result=[];
+  for(const [z,x,dual] of axles)for(const side of [-1,1]) {
+    const wheel=new THREE.Group();wheel.position.set(side*x,.52,z);parent.add(wheel);
+    mesh(dual?dualTyre:truckTyre,M.rubber,wheel);
+    mesh(truckRim,TRUCK.rim,wheel,side*(dual?.285:.14),0,0).rotation.y=side<0?Math.PI:0;
+    result.push(wheel);
+  }
+  parent.userData.wheels=result;
+}
+// Flat-faced cab-over (平头) cab with a raked windscreen; its roof fairing (导流罩) tops out just under the 3.9 m box.
+function truckCab(g,k,paint,{front,back,half:hw,roof:t,top,axle,sleeper}) {
+  const zf=front+.08,b=1.12,sill=2.08,rake=.2,dark=TRUCK.dark;
+  k.shape(paint,hull([[zf,hw,b,sill,.05],[zf+rake,hw,b,t-.08,.1],[zf+.34,hw,b,t,.14],[back,hw,b,t,.14]]));
+  k.shape(paint,hull([[zf+.36,hw-.1,t-.16,t+.02,.02],[zf+.8,hw-.08,t-.16,top-.2,.12],
+    [zf+1.2,hw-.05,t-.16,top-.03,.15],[back,hw-.03,t-.16,top,.15]]));
+  const tilt=Math.atan2(rake,t-.08-sill),glass=Math.hypot(rake,t-.08-sill)-.14;
+  k.plane(TRUCK.glass,0,(sill+t-.08)/2+.012*Math.sin(tilt),zf+rake/2-.012*Math.cos(tilt),2*hw-.32,glass,tilt,Math.PI);
+  k.box(dark,0,t-.03,zf+.1,2*hw-.24,.04,.28,.1);
+  for(const x of [-.6,-.3,0,.3,.6])k.box(TRUCK.marker,x,t-.045,zf-.045,.09,.03,.02);
+  // Grille, badge and a tall bumper carrying the headlamps, as on most Chinese heavy trucks.
+  k.box(dark,0,1.58,zf-.012,2*hw-.66,.64,.03);
+  for(const y of [1.38,1.53,1.68,1.83])k.box(M.alloy,0,y,zf-.03,2*hw-.74,.035,.02);
+  for(const y of [1.24,1.93])k.box(M.alloy,0,y,zf-.02,2*hw-.6,.045,.04);
+  k.box(dark,0,1.605,zf-.05,.58,.15,.02);badge(g,'TIANLU',0,1.605,zf-.07,.5,.17);
+  k.box(TRUCK.grey,0,.8,front+.1,2*hw+.02,.62,.18);k.box(dark,0,.51,front+.03,2*hw-.2,.08,.05);
+  k.box(dark,0,.78,(zf+back)/2,1.1,.6,back-zf-.6);k.box(dark,0,.52,axle,1.8,.12,.14);
+  for(const s of [-1,1]) {
+    k.box(dark,s*(hw-.4),.92,front+.025,.6,.2,.04);k.box(M.head,s*(hw-.46),.93,front+.004,.4,.1,.008);
+    blinker(g,s*(hw-.17),.93,front+.006,.1,.1,.01);k.box(TRUCK.lens,s*(hw-.42),.64,front+.006,.18,.07,.012);
+    const x=s*(hw+.003),ry=s*Math.PI/2;
+    k.plane(TRUCK.glass,x,2.53,zf+.74,.84,.7,0,ry);
+    if(sleeper)k.plane(TRUCK.glass,x,2.66,back-.42,.34,.4,0,ry);
+    k.quad(GAP,x,(1.2+t-.24)/2,zf+1.34,.016,t-1.44,0,ry);k.quad(GAP,x,(1.2+sill)/2,zf+.18,.016,sill-1.2,0,ry);
+    k.box(dark,s*(hw+.01),2.02,zf+1.2,.02,.04,.16);blinker(g,s*(hw+.006),1.7,zf+.42,.012,.07,.2);
+    // Main and wide-angle mirrors hang on a tubular arm off the A-pillar.
+    k.link(dark,[s*(hw-.02),2.92,zf+.32],[s*(hw+.2),3.0,zf+.22],.018);k.link(dark,[s*(hw-.02),2.2,zf+.36],[s*(hw+.2),2.12,zf+.22],.018);
+    k.link(dark,[s*(hw+.2),3.0,zf+.22],[s*(hw+.2),2.12,zf+.22],.016);
+    for(const [y,h] of [[2.62,.44],[2.22,.2]]) {k.box(dark,s*(hw+.22),y,zf+.2,.2,h,.07);k.box(TRUCK.mirror,s*(hw+.22),y,zf+.237,.16,h-.04,.006);}
+    const step=axle+.7;
+    for(const y of [.5,.86])k.box(dark,s*(hw-.13),y,step,.26,.045,.32);
+    for(const dz of [-.17,.17])k.box(dark,s*(hw-.02),.72,step+dz,.03,.56,.025);
+    k.arc(TRUCK.fender,s*1.02,.52,axle,.4,.6);
+  }
+}
+// Van body: ribbed aluminium sides, a flat deck flush at y 3.9, red/white tape, marker lamps and rear swing doors.
+function cargoBox(g,k,red,{from:z0,to:z1,half:hw,ribs,beam,under,number}) {
+  const len=z1-z0,F=z1-.01,D=z1-.046,dark=TRUCK.dark,post=TRUCK.post;
+  k.box(TRUCK.skin,0,2.57,(z0+.02+D)/2,2*hw-.06,2.54,D-z0-.02);
+  k.box(dark,0,1.26,(z0+z1)/2,2*hw-.08,.08,len-.2);
+  k.box(TRUCK.deck,0,3.87,(z0+.1+z1-.116)/2,2*hw-.08,.06,len-.216);
+  for(let z=z0+.7;z<z1-.4;z+=.6)k.quad(SEAM,0,3.9,z,2*hw-.08,.025,-Math.PI/2);
+  for(const [y,h] of [[3.82,.16],[1.32,.2]]) {
+    k.box(post,0,y,z0+.05,2*hw-.008,h,.1);k.box(post,0,y,z1-.063,2*hw-.008,h,.106);
+    for(const s of [-1,1])k.box(post,s*(hw-.022),y,(z0+F)/2,.036,h,F-z0);
+  }
+  for(let z=under;z<z1-.2;z+=ribs)k.box(dark,0,1.17,z,2*hw-.12,.1,.08);
+  for(const s of [-1,1]) {
+    k.box(post,s*(hw-.03),2.58,z0+.05,.052,2.32,.1);k.box(post,s*(hw-.045),2.58,z1-.063,.082,2.32,.106);
+    for(let z=z0+ribs;z<z1-ribs*.6;z+=ribs)k.box(post,s*(hw-.019),2.58,z,.022,2.32,.07);
+    k.box(dark,s*.5,1.22-beam/2,(under+z1-.3)/2,.13,beam,z1-.3-under);
+    const side=s*(hw-.003),ry=s*Math.PI/2;
+    tape(k,[side,1.32,z0+.12],[side,1.32,z1-.14],Math.round((len-.26)/.5),ry);
+    tape(k,[side,3.82,z1-1.06],[side,3.82,z1-.14],2,ry);tape(k,[side,3.72,z1-.063],[side,2.92,z1-.063],2,ry,.07);
+    for(let z=z0+1;z<z1-.8;z+=2.4){k.box(dark,s*(hw-.05),1.19,z,.05,.06,.05);k.box(TRUCK.marker,s*(hw-.025),1.13,z,.03,.07,.11);}
+    k.box(TRUCK.marker,s*(hw-.16),3.82,z0-.006,.12,.06,.012);k.box(red,s*(hw-.045),3.66,z1-.005,.06,.1,.01);
+    // Rear outline tape on the door frame.
+    tape(k,[s*(hw-.045),1.45,F+.001],[s*(hw-.045),3.56,F+.001],5,0,.07);
+    for(const y of [1.62,2.25,2.95,3.5])k.box(dark,s*(hw-.16),y,z1-.031,.17,.07,.03);
+  }
+  for(const y of [3.84,1.32])tape(k,[.12-hw,y,F+.001],[hw-.12,y,F+.001],6,0);
+  // Two swing doors: shut line, four lock rods with cams, guides and handles, and the painted number.
+  k.quad(GAP,0,2.58,D+.001,.018,2.32);
+  for(const x of [-.86,-.3,.3,.86]) {
+    k.rod(post,x,2.58,z1-.028,.032,2.22,.032);k.box(dark,x,2.95,z1-.031,.06,.04,.03);
+    for(const y of [1.5,3.66])k.box(dark,x,y,z1-.031,.075,.07,.03);
+    k.box(post,x+Math.sign(x)*.11,2.15,z1-.025,.24,.035,.026);
+  }
+  decal(g,number,0,2.92,D+.002,1.8,.56);
+}
+// Rear chassis: low combination lamps, the underride guard (后防护) and its tape.
+function rearEnd(g,k,red,{at:z1,half:hw}) {
+  const dark=TRUCK.dark;
+  k.box(dark,0,1.1,z1-.26,2*hw-.3,.2,.12);k.box(TRUCK.post,0,.51,z1-.15,2*hw-.3,.16,.1);
+  tape(k,[.18-hw,.51,z1-.099],[hw-.18,.51,z1-.099],7,0,.1);
+  for(const s of [-1,1]) {
+    k.box(dark,s*(hw-.33),1.0,z1-.22,.06,.2,.1);k.box(dark,s*(hw-.33),.93,z1-.16,.58,.18,.08);
+    g.userData.brakeLights.push(box(g,red,s*(hw-.31),.93,z1-.114,.22,.11,.012));
+    k.box(TRUCK.lens,s*(hw-.52),.93,z1-.114,.12,.11,.012);blinker(g,s*(hw-.12),.93,z1-.114,.1,.11,.012);
+    k.box(dark,s*.62,.8,z1-.2,.08,.42,.08);
+  }
+}
+
+export function createTruck() {
+  const g=new THREE.Group();g.name='9.6 m cab-over box truck';
+  const paint=mat('#b5252c',.5,.3),red=tail(g),k=kit(),dark=TRUCK.dark;g.userData.paint=paint;
+  // 12.0 m overall (z -6..6). The 9.6 m van body spans z -3.6..6 and x ±1.25, with its flat deck at y 3.9.
+  truckCab(g,k,paint,{front:-6,back:-3.74,half:1.21,roof:3.12,top:3.82,axle:-4.75});
+  cargoBox(g,k,red,{from:-3.6,to:6,half:1.25,ribs:.6,beam:.2,under:-3.3,number:'G2026'});
+  rearEnd(g,k,red,{at:6,half:1.25});
+  for(const s of [-1,1]) {
+    k.box(dark,s*.48,.87,-.05,.1,.28,11.3);k.box(paint,s*1.225,2.8,-3.68,.03,1.8,.16);
+    for(const y of [.52,.82])k.box(TRUCK.post,s*1.21,y,-1.3,.04,.08,4.9);
+    for(const z of [-3.7,-1.3,1.1])k.box(dark,s*1.17,.72,z,.04,.5,.05);
+    for(const z of [1.9,3.25])k.arc(TRUCK.fender,s*.92,.52,z,.62,.58);
+    k.box(TRUCK.fender,s*.92,1.09,2.575,.62,.02,1.35);
+    k.box(M.rubber,s*.92,.53,3.9,.5,.66,.02);k.box(dark,s*.92,.88,3.9,.54,.04,.05);
+  }
+  k.rod(M.alloy,-.92,.68,-2.5,.56,1,.56,Math.PI/2);
+  for(const z of [-2.85,-2.15])k.rod(dark,-.92,.68,z,.58,.04,.58,Math.PI/2);
+  k.box(dark,.9,.72,-2.6,.5,.44,.6);
+  for(const s of [-1,1])k.rod(TRUCK.grey,s*.72,.74,.1,.26,1,.26,Math.PI/2);
+  for(const z of [1.9,3.25])k.box(dark,0,.52,z,1.6,.14,.14);
+  truckWheels(g,[[-4.75,1.02,false],[1.9,.92,true],[3.25,.92,true]]);
+  k.build(g,'truck');return g;
+}
+
+export function createSemi() {
+  const g=new THREE.Group();g.name='cab-over tractor with box semi-trailer';
+  const paint=mat('#1f4f8f',.5,.3),red=tail(g),k=kit(),dark=TRUCK.dark;g.userData.paint=paint;
+  // 16.5 m overall (z -8.25..8.25). The 12.95 m trailer spans z -4.7..8.25 and x ±1.275, with its flat deck at y 3.9.
+  truckCab(g,k,paint,{front:-8.25,back:-5.85,half:1.24,roof:3.3,top:3.84,axle:-7,sleeper:true});
+  cargoBox(g,k,red,{from:-4.7,to:8.25,half:1.275,ribs:.8,beam:.34,under:-2,number:'G1688'});
+  rearEnd(g,k,red,{at:8.25,half:1.275});
+  // Tractor: fifth wheel and air lines in the open gap, snorkel, tanks and drive-axle fenders.
+  k.box(TRUCK.grey,0,1.165,-3.5,1.3,.07,1.1);k.box(dark,0,1.06,-3.5,.95,.14,.7);k.box(M.alloy,0,1.1,-5.35,1,.03,.8);
+  k.rod(dark,.95,2.25,-5.7,.2,1.9,.2);k.box(dark,.95,3.22,-5.7,.26,.12,.26);
+  for(const [x,tint] of [[-.25,'#b3271e'],[.25,'#d1a21f'],[0,'#1b1f22']]) {
+    k.link(TRUCK.decal,[x,2.05,-5.84],[x*1.4,1.62,-5.3],.022,tint);k.link(TRUCK.decal,[x*1.4,1.62,-5.3],[x*1.6,1.5,-4.69],.022,tint);
+  }
+  k.rod(M.alloy,-.95,.7,-5.15,.6,1.3,.6,Math.PI/2);
+  for(const z of [-5.6,-4.7])k.rod(dark,-.95,.7,z,.62,.04,.62,Math.PI/2);
+  k.box(dark,.92,.74,-5.45,.5,.45,.6);k.rod(TRUCK.grey,.92,.66,-4.75,.3,.6,.3,Math.PI/2);
+  // Trailer: landing gear (支腿) with its cross shaft and crank, side guards and a tri-axle bogie.
+  k.rod(dark,0,1,-1.4,.05,1.9,.05,0,0,Math.PI/2);k.box(dark,-1.1,.98,-1.4,.16,.03,.03);
+  for(const s of [-1,1]) {
+    k.box(dark,s*.45,.87,-4.8,.1,.28,6.5);k.box(paint,s*1.25,2.7,-5.665,.03,2,.41);
+    for(const z of [-3.85,-2.5])k.arc(TRUCK.fender,s*.92,.52,z,.62,.58);
+    k.box(TRUCK.fender,s*.92,1.09,-3.175,.62,.02,1.35);
+    k.box(M.rubber,s*.92,.53,-1.86,.5,.66,.02);k.box(dark,s*.92,.88,-1.86,.54,.04,.05);
+    k.box(dark,s*.95,.93,-1.4,.13,.54,.13);k.box(TRUCK.grey,s*.95,.48,-1.4,.09,.42,.09);k.box(dark,s*.95,.27,-1.4,.28,.06,.32);
+    k.link(dark,[s*.95,.8,-1.4],[s*.5,1,-.3],.025);
+    for(const y of [.52,.82])k.box(TRUCK.post,s*1.235,y,1.35,.04,.08,4.5);
+    for(const z of [-.8,1.35,3.5])k.box(dark,s*1.2,.72,z,.04,.5,.05);
+    for(const z of [4.25,5.56,6.87])k.arc(TRUCK.fender,s*.95,.52,z,.62,.58);
+    k.box(TRUCK.fender,s*.95,1.09,5.56,.62,.02,2.62);
+    k.box(M.rubber,s*.95,.53,7.52,.5,.66,.02);k.box(dark,s*.95,.88,7.52,.54,.04,.05);
+  }
+  for(const z of [-3.85,-2.5,4.25,5.56,6.87])k.box(dark,0,.52,z,1.6,.14,.14);
+  truckWheels(g,[[-7,1.02,false],[-3.85,.92,true],[-2.5,.92,true],[4.25,.95,true],[5.56,.95,true],[6.87,.95,true]]);
+  k.build(g,'semi');return g;
+}
+
 export function createBattery() {
   const g=new THREE.Group(); g.name='detached EV battery';
   round(g,M.battery,0,.165,0,1.8,.30,1.8,.06);
   box(g,M.black,0,.3225,0,1.68,.035,1.66);
   for(const x of [-.61,-.31,0,.31,.61]) box(g,M.darkAlloy,x,.338,0,.06,.024,1.47);
   for(const s of [-1,1]) {box(g,M.alloy,s*.86,.21,0,.08,.13,1.32);box(g,M.blue,s*.4,.20,.878,.23,.075,.035);}
+  return g;
+}
+
+// Folding warning triangle: reflective red frame with a fluorescent inner band on a wire stand, face toward +Z.
+export function createTriangle() {
+  const g=new THREE.Group(); g.name='warning triangle';
+  const side=.45,band=.06,depth=.014,tall=side*Math.sqrt(3)/2,inradius=side/(2*Math.sqrt(3));
+  const outline=inset=>{const s=(inradius-inset)/inradius;return [[-side/2,0],[side/2,0],[0,tall]].map(([x,y])=>new THREE.Vector2(x*s,inradius+(y-inradius)*s));};
+  const ring=(outer,inner)=>{const shape=new THREE.Shape(outline(outer));shape.holes.push(new THREE.Path(outline(inner)));return shape;};
+  const red=mat('#e3202c',.1,.32,{emissive:'#ff1a12',emissiveIntensity:.75});
+  const glow=mat('#ff6a3a',0,.5,{emissive:'#ff3d1a',emissiveIntensity:.45});
+  // Leaning back a little shows the face to the raised chase camera.
+  const plate=new THREE.Group(); plate.position.y=.045; plate.rotation.x=-.1; g.add(plate);
+  mesh(new THREE.ExtrudeGeometry(ring(0,band),{depth,bevelEnabled:false}).translate(0,0,-depth/2),red,plate);
+  mesh(new THREE.ShapeGeometry(ring(band*.55,band)),glow,plate,0,0,depth/2+.002);
+  edge(g,M.darkAlloy,[-.2,.012,0],[.2,.012,0],.006);
+  for(const s of [-1,1]) {
+    edge(g,M.darkAlloy,[s*.19,.008,-.16],[s*.19,.008,.07],.006);
+    edge(g,M.darkAlloy,[s*.12,.012,0],[s*.12,.05,0],.005);
+    box(g,M.rubber,s*.19,.01,-.16,.03,.02,.04);
+  }
   return g;
 }
