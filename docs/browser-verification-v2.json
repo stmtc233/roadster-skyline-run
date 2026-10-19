@@ -1,0 +1,15 @@
+{
+  "checks": [
+    "touch swipe right",
+    "simultaneous swipe and thrust; 8m ceiling",
+    "release landing",
+    "release thrust preserves pending second-finger swipe",
+    "cancel pause; countdown resume",
+    "battery staged collision/result",
+    "rear staged collision/result",
+    "front staged collision/result",
+    "320px layout",
+    "no runtime errors"
+  ],
+  "errors": []
+}

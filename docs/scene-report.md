@@ -1,0 +1,12 @@
+# Scene implementation report
+
+Implemented only the assigned `dist/scene.js`, `dist/models.js`, and this report.
+
+- `createScene(canvas)` returns the exact `{ render(state, dt), resize() }` interface. State is read only; simulation positive Z is explicitly mapped to world negative Z. Player altitude comes solely from simulation. No network images or addon imports.
+- Custom section-built white Roadster has tapered nose/tail, continuous gold canopy, roof spine, raised rear shoulders, black sills/splitter/diffuser, a fine red rear lightbar and silver multi-spoke rotating wheels. MPV has a tall long two-tone cabin and detailed front grille/headlights. SUV has upright glass, square arches, vertical lamps and rear storage box. Sedan has emissive brake lights; battery has a ribbed casing and blue connectors.
+- Sunlit highway has procedural asphalt and metallic sky reflections, soft shadows, a stationary-on-road airborne-player shadow, pale cold-gas downward jets, edge/dashed lines, cream guardrails, procedural trees, distant sage hills and kilometer signs. Tree motion, lane markers and signs use simulation distance. Trees, dash marks and rail posts are instanced; event objects are pooled and recycled; wheel spokes are merged into one geometry per wheel. Pixel ratio is capped at 1.75.
+- Rear mirror uses the current `#mirror-view` rectangle with a scissored viewport and backwards camera. Player is hidden only during mirror rendering. Source SUV uses explicit source coordinates. Battery is hidden for the initial 0.8 seconds while local warning sparks display, then uses the exact event position. Event array removal returns its entire view to a kind-specific pool.
+
+Validation performed: Node ESM syntax checks for both files; instantiate all five exported models against the vendored Three.js module; check nonempty finite position data; inspect world bounding boxes and mesh/triangle counts. Roadster: 38 meshes / 8,952 triangles; MPV: 55 / 13,284; SUV: 50 / 12,616; sedan: 27 / 6,308; battery: 11 / 740. Battery bounds are 1.80 × 0.34 × 1.80 m. Car decorative mirrors extend beyond nominal chassis width; the SUV rear storage box adds approximately 0.44 m to its nominal body length.
+
+Browser/WebGL, actual portrait framing, gameplay integration and real-device frame rate remain for parent QA as assigned. Mirror positioning requires parent to call `resize()` after layout changes; its rectangle is also refreshed periodically during rendering. No Git or publication changes performed.
