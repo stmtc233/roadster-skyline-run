@@ -12,8 +12,11 @@ export const AIR_LANE=Object.freeze({gas:25,duration:.425});
 // Trucks have a flat box roof (deck) at their height that the player can land on and drive across.
 const BODY={player:{width:1.9,length:4.6,mass:2},sedan:{width:1.85,length:4.6,height:1.45,mass:1.6},su7:{width:1.963,length:4.997,height:1.455,mass:1.98},suv:{width:2,length:4.8,height:1.9,mass:2.1},mpv:{width:2,length:5.5,height:1.92,mass:2.7},m9:{width:2,length:5.23,height:1.8,mass:2.6},truck:{width:2.5,length:12,height:3.9,mass:10,deck:true},semi:{width:2.55,length:16.5,height:3.9,mass:16,deck:true},battery:{width:1.8,length:1.8,height:.35,mass:.5}};
 const COLORS={su7:['#087fb7'],m9:['#174776','#295b76','#416b82','#174776'],truck:['#2f5f9e','#e2e1da','#d0a334','#3f7a5a'],semi:['#a73a2f','#e2e1da','#2f5f9e','#e07a1f']};
+const trafficModel=roll=>roll<.10?'suv':roll<.24?'mpv':roll<.37?'m9':roll<.46?'truck':roll<.52?'semi':roll<.60?'su7':'sedan';
 // Blinking time before a lane change (s), sideways speed (m/s), braking, pick-up, crash sliding and broken-suspension drag (m/s²), battery drop delay (s).
 const SIGNAL=1.05,LATERAL=3.6,HARD_BRAKE=9,SOFT_BRAKE=6,PICKUP=2.2,SLIDE=6.5,BATTERY_SLIDE=14,DRAG=8,EJECT=1.25;
+// Room for a faster follower to match a new leader's speed, then keep a normal following gap.
+const brakingGap=(rear,front)=>rear>front?5+rear*.55+(rear-front)**2/(2*SOFT_BRAKE):0;
 // A broken-down car rests this far beyond its lane centre, half on the road edge, still blocking the lane.
 const SHOULDER=1.3;
 // Least time (s) between a car starting to signal into the player's lane ahead and the player reaching it.
@@ -33,7 +36,7 @@ const LEAD={gap:0,speed:0,stopping:false};
 export const HINTS=Object.freeze({front:'前车刹车灯狂闪急刹 · 变道或起飞',rear:'后方车辆刹车断裂 · 听喇叭、看后视镜',battery:'邻车双闪急停 · 小心弹出的电池',breakdown:'前车悬挂断裂 · 拖着火花急停',parked:'路边抛锚车占着车道 · 提前变道',truck:'大货车车厢顶可以落脚 · 起飞踩上去'});
 export class Game {
  constructor({random=Math.random,autoSpawn=true,trafficEnabled=true,mode='normal'}={}){this.random=random;this.autoSpawn=autoSpawn;this.trafficEnabled=trafficEnabled;this.nextId=1;this.start(mode);this.phase='ready';}
- start(mode=this.mode){this.mode=Object.hasOwn(MODES,mode)?mode:'normal';const curve=this.speedCurve;Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:curve.start,maxSpeed:curve.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,accumulator:0,crashSpeed:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed*curve.start/SPEED.start,model);}
+ start(mode=this.mode){this.mode=Object.hasOwn(MODES,mode)?mode:'normal';const curve=this.speedCurve;Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:curve.start,maxSpeed:curve.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,rowAfter:15,rowUntil:0,accumulator:0,crashSpeed:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed*curve.start/SPEED.start,model);}
  get speedCurve(){return MODES[this.mode];}
  // The rear jets power the jet-mode speed curve automatically, independently of flight gas.
  get boosting(){return this.mode==='jet'&&this.phase==='running';}
@@ -61,7 +64,7 @@ export class Game {
  get accel(){const s=this.speedCurve;return this.phase==='running'?(s.top-this.speed)/s.ramp/3.6:0;}
  // The newest live hazard, so a second one arriving mid-way still gets noticed.
  get warning(){const e=this.events.findLast(e=>!e.resolved&&e.stage!=='planned');return e?{id:e.id,kind:e.kind,stage:e.stage,text:HINTS[e.kind]}:null;}
- addTraffic(lane,z,speed,model='sedan'){const palette=COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'],color=palette[Math.floor(this.random()*palette.length)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0};this.traffic.push(o);return o;}
+ addTraffic(lane,z,speed,model='sedan'){const palette=COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'],color=palette[Math.floor(this.random()*palette.length)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',row:false,brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0};this.traffic.push(o);return o;}
  // Bumper-to-bumper distance at which a body touches the player's car.
  reach(o){return (BODY.player.length+o.length)/2-.12;}
  // Metres the player closes on a hazard within `seconds` if nobody reacts, following the hazard's scripted speed.
@@ -109,6 +112,8 @@ export class Game {
  // roadside breakdown, placed far ahead in the haze, need no particular car and fill in when nothing else is ready.
  plan(){
   const v=this.speed/3.6,options=[],earliest=this.busyUntil+this.spacing;
+  // Let the player deal with the full-width slow row before asking for another manoeuvre.
+  if(this.traffic.some(c=>c.row&&c.z>-this.reach(c)&&c.z/Math.max(1,v-c.speed)<5))return null;
   for(const kind of ['front','breakdown','battery'])for(const c of this.candidates(kind)){
    const wait=(c.z-this.reach(kind==='battery'?BODY.battery:c)-this.gain(kind,c,CUE[kind])-3)/Math.max(1,v-c.speed);
    if(wait>0&&wait<3.5&&this.clock+wait+CUE[kind]>=earliest)options.push({kind,c,wait});
@@ -134,7 +139,7 @@ export class Game {
   const lanes=kind==='battery'?[this.lane-1,this.lane+1].filter(l=>Math.abs(l)<=1):[this.lane];
   const near=this.traffic.filter(c=>c.z>0&&lanes.includes(c.lane)&&Math.abs(c.x-c.lane*4)<.5).sort((a,b)=>a.z-b.z);
   // Only the first car in the player's lane can stop in front of them; only the iCAR drops a battery and only the M9 breaks down.
-  return (kind==='battery'?near:near.slice(0,1)).filter(c=>c.mode==='cruise'&&!c.signal&&!c.role&&c.z<230&&(kind==='battery'?c.model==='suv':kind==='breakdown'?c.model==='m9':true));
+  return (kind==='battery'?near:near.slice(0,1)).filter(c=>c.mode==='cruise'&&!c.signal&&!c.role&&!c.row&&c.z<230&&(kind==='battery'?c.model==='suv':kind==='breakdown'?c.model==='m9':true));
  }
  // A live hazard lets the next one be planned shortly, timed so the two never hit at once.
  armed(e,seconds=CUE[e.kind]){e.contactAt=this.clock+seconds;this.nextEvent=this.time+this.spacing*.5;}
@@ -212,7 +217,7 @@ export class Game {
    this.thrusting=this.held&&!this.exhausted&&this.gas>0;this.floor=this.deck();
    if(this.thrusting){this.gas=Math.max(0,this.gas-25*dt);this.altitude=Math.min(8,this.altitude+8.5*dt);if(this.gas<1e-8){this.gas=0;this.exhausted=true;this.thrusting=false;}}
    // Standing on a truck roof counts as being on the ground.
-   else{this.altitude=Math.max(this.floor,this.altitude-6*dt);if(this.altitude===this.floor)this.gas=Math.min(100,this.gas+24*dt);}
+   else{this.altitude=Math.max(this.floor,this.altitude-6*dt);if(this.altitude===this.floor)this.gas=Math.min(100,this.gas+20*dt);}
   }else{
    // After an impact the player's car slides to rest while the rest of the road plays on; distance and score stay frozen.
    this.crashTime+=dt;this.crashSpeed=Math.max(0,this.crashSpeed-SLIDE*dt);v=this.crashSpeed;this.speed=v*3.6;
@@ -231,6 +236,11 @@ export class Game {
  }
  // Every car brakes for what is ahead of it, follows its own script, moves, and may collide with others.
  drive(dt,v){
+  let count=0,clear=true,intact=true,rowSpeed=Infinity;
+  for(const c of this.traffic)if(c.row){count++;clear&&=c.z<-this.reach(c)-1;intact&&=c.mode==='cruise';}
+  // Release the formation after passing it, or when an actual collision splits it up.
+  if(count&&(count!==3||clear||!intact)){for(const c of this.traffic)c.row=false;}
+  else for(const c of this.traffic)if(c.row)rowSpeed=Math.min(rowSpeed,this.followSpeed(c,dt,v));
   for(const c of this.traffic){
    const was=c.speed;
    if(c.mode==='crashed'){c.speed=Math.max(0,c.speed-SLIDE*dt);c.yaw+=c.spin*dt;c.spin=c.speed>0?c.spin*Math.exp(-1.8*dt):0;}
@@ -240,18 +250,7 @@ export class Game {
     c.speed=Math.max(0,c.speed-DRAG*dt);const dx=c.drift-c.x;
     c.vx=c.speed>0?Math.sign(dx)*Math.min(Math.abs(dx)/dt,1.6):0;c.x+=c.vx*dt;
    }
-   else{
-    let target=c.cruise,rate=SOFT_BRAKE;
-    if(c.mode==='brake'){target=c.brakeTo;rate=HARD_BRAKE;if(c.brakeTo>0&&c.speed<=c.brakeTo+1e-6){c.holdUntil||=this.clock+1.4;if(this.clock>=c.holdUntil)Object.assign(c,{mode:'cruise',holdUntil:0});}}
-    const lead=this.leader(c,v);
-    if(lead){
-     const safe=5+c.speed*.55;if(lead.gap<safe*2.5)target=Math.min(target,Math.max(0,lead.speed+(lead.gap-safe)*.9));
-     // Brake as hard as the remaining distance demands for something much slower ahead, up to an emergency stop.
-     const ahead=lead.stopping?0:lead.speed,need=c.speed>ahead?(c.speed**2-ahead**2)/(2*Math.max(1,lead.gap-4)):0;
-     if(need>1.5){target=Math.min(target,ahead);rate=Math.max(rate,Math.min(HARD_BRAKE,need*1.2));}
-    }
-    c.speed=target<c.speed?Math.max(target,c.speed-rate*dt):Math.min(target,c.speed+PICKUP*dt);
-   }
+   else c.speed=c.row?rowSpeed:this.followSpeed(c,dt,v);
    c.brake=c.mode!=='runaway'&&(was-c.speed>1.5*dt||c.mode==='brake'||(c.speed===0&&c.mode==='cruise'));
    // Emergency braking flashes the brake lights, as modern cars do; ordinary slowing shows them steady.
    c.flash=(c.mode==='cruise'||c.mode==='brake')&&was-c.speed>6.5*dt;
@@ -269,6 +268,18 @@ export class Game {
   this.collideTraffic();
   // While the player's wreck slides, anything running into it crashes too.
   if(this.phase==='over')for(const o of this.traffic)if(o.mode!=='crashed'&&this.hit(o)){o.speed=Math.min(o.speed,v);this.wreck(o,o.z<0?.6:-.6);this.cue('crash',o);}
+ }
+ // Follow the nearest leader, braking as hard as the remaining distance demands.
+ followSpeed(c,dt,v){
+  let target=c.cruise,rate=SOFT_BRAKE;
+  if(c.mode==='brake'){target=c.brakeTo;rate=HARD_BRAKE;if(c.brakeTo>0&&c.speed<=c.brakeTo+1e-6){c.holdUntil||=this.clock+1.4;if(this.clock>=c.holdUntil)Object.assign(c,{mode:'cruise',holdUntil:0});}}
+  const lead=this.leader(c,v);
+  if(lead){
+   const safe=5+c.speed*.55;if(lead.gap<safe*2.5)target=Math.min(target,Math.max(0,lead.speed+(lead.gap-safe)*.9));
+   const ahead=lead.stopping?0:lead.speed,need=c.speed>ahead?(c.speed**2-ahead**2)/(2*Math.max(1,lead.gap-4)):0;
+   if(need>1.5){target=Math.min(target,ahead);rate=Math.max(rate,Math.min(HARD_BRAKE,need*1.2));}
+  }
+  return target<c.speed?Math.max(target,c.speed-rate*dt):Math.min(target,c.speed+PICKUP*dt);
  }
  // Bodies that touch trade momentum, light their hazards and slide to a stop as wrecks.
  collideTraffic(){
@@ -312,7 +323,7 @@ export class Game {
  // Ordinary drivers now and then signal and change lanes, more eagerly when stuck behind something slower.
  wander(dt,v){
   for(const c of this.traffic){
-   if(c.mode!=='cruise'||c.signal||c.role||c.z<-150||c.z>240)continue;
+   if(c.mode!=='cruise'||c.signal||c.role||c.row||c.z<-150||c.z>240)continue;
    // A wreck or an emergency stop ahead makes a driver pull out urgently; a slow car only once they are stuck behind it.
    const lead=this.leader(c,v),urgent=lead&&lead.stopping&&lead.gap<260,stuck=lead&&lead.gap<45&&lead.speed<c.cruise-4;
    if(this.random()>=(urgent?6:stuck?1.4:.05)*dt)continue;
@@ -320,16 +331,35 @@ export class Game {
    for(const dir of [first,-first])if(Math.abs(c.lane+dir)<=1&&this.laneClear(c,c.lane+dir)){this.signalLane(c,dir);break;}
   }
  }
- // New cars enter far ahead, inside the haze, and never wall off every lane at the moment they reach the player.
+ // A rare, deliberate full-width formation. All lanes must have room before any member is added.
+ spawnSlowRow(v){
+  if(this.time<this.rowAfter||this.traffic.some(c=>c.row)||this.traffic.filter(c=>c.z>0).length>7)return false;
+  const models=[trafficModel(this.random()),trafficModel(this.random()),trafficModel(this.random())],z=300+this.random()*60,speed=v*(.5+this.random()*.05),length=Math.max(...models.map(m=>BODY[m].length)),t=z/Math.max(1,v-speed);
+  for(const o of this.obstacles()){
+   const gap=Math.abs(o.z-z)-(o.length+length)/2,room=o.z<z?brakingGap(o.speed,speed):brakingGap(speed,o.speed);
+   if(gap<Math.max(40,room))return false;
+   const closing=v-o.speed;
+   if(o.z>0&&closing>1&&Math.abs(o.z/closing-t)<2.6+(o.length+length)/2/closing)return false;
+  }
+  for(let lane=-1;lane<=1;lane++)this.addTraffic(lane,z,speed,models[lane+1]).row=true;
+  this.rowAfter=this.time+22;return true;
+ }
+ // Ordinary new traffic leaves an escape lane; the rare slow row is generated separately with extra spacing.
  spawnTraffic(v){
   if(this.time<this.nextTraffic)return;
   this.nextTraffic=this.time+Math.max(.7,1.5-this.time/150)+this.random()*.6;
   if(this.traffic.filter(o=>o.z>0).length>=10)return;
+  // Once selected, briefly reserve a clear opening rather than continuously filling it with lone cars.
+  if(this.rowUntil&&this.time>=this.rowUntil)this.rowUntil=0;
+  else if(!this.rowUntil&&this.time>=this.rowAfter&&this.random()<.1)this.rowUntil=this.time+5;
+  if(this.rowUntil){if(this.spawnSlowRow(v))this.rowUntil=0;return;}
   // New cars favour the player's lane, so there is usually someone ahead of them who might brake.
   const lane=this.random()<.35?this.lane:Math.floor(this.random()*3)-1,z=210+this.random()*60,roll=this.random(),pace=this.random();
   // Sedans include SU7-inspired fastbacks; trucks run closer to the player's speed.
-  const model=roll<.10?'suv':roll<.24?'mpv':roll<.37?'m9':roll<.46?'truck':roll<.52?'semi':roll<.60?'su7':'sedan',{length}=BODY[model];
+  const model=trafficModel(roll),{length}=BODY[model];
   const speed=v*(BODY[model].deck?.7+pace*.08:.6+pace*.2),t=z/Math.max(1,v-speed),blocked=new Set([lane]);
+  // A new ordinary car must not be placed into a slow row's braking zone, in either direction.
+  if(this.traffic.some(o=>o.row&&(Math.abs(o.x-lane*4)<2.6||o.lane===lane)&&Math.abs(o.z-z)-(o.length+length)/2<(o.z>z?brakingGap(speed,o.speed):brakingGap(o.speed,speed))))return;
   // Long vehicles occupy a lane for longer as the player passes them.
   for(const o of this.obstacles()){const closing=v-o.speed;if(closing>1&&o.z>0&&Math.abs(o.z/closing-t)<1.4+((o.length+length)/2-4.6)/closing)blocked.add(Math.round(o.x/4));}
   if(blocked.size<3&&!this.traffic.some(o=>(Math.abs(o.x-lane*4)<2.6||o.lane===lane)&&Math.abs(o.z-z)<(o.length+length)/2+25))this.addTraffic(lane,z,speed,model);

@@ -10,6 +10,14 @@ function staged(kind,g=game()){if(kind==='parked'){g.moveLane(1);run(g,.5);}retu
 // Seconds until the run ends with nobody touching the controls.
 function contactTime(g){const t=g.time;for(let i=0;i<8*120&&g.phase==='running';i++)g.update(1/120);return g.time-t;}
 const KINDS=['front','rear','battery','breakdown','parked'];
+test('ground and truck-roof recovery add twenty gas per second in both modes',()=>{
+ for(const mode of ['normal','jet'])for(const hz of [30,60,120])for(const roof of [false,true]){
+  const g=new Game({mode,autoSpawn:false,trafficEnabled:false});g.start();g.time=10000;g.update(1/120);g.gas=40;
+  if(roof){g.addTraffic(0,0,g.speed/3.6,'truck');g.altitude=3.9;}
+  run(g,1,hz);assert.equal(g.phase,'running');assert.ok(Math.abs(g.gas-60)<1e-8,`${mode}, ${hz} Hz, roof ${roof}: ${g.gas}`);
+  run(g,3,hz);assert.equal(g.gas,100);
+ }
+});
 test('raised ceiling, fuel and exhaustion rearm',()=>{const g=game();g.setHeld(true);run(g,1.2);assert.equal(g.altitude,8);assert.ok(Math.abs(g.gas-70)<.1);run(g,5);assert.equal(g.altitude,0);assert.equal(g.thrusting,false);run(g,2);assert.ok(g.gas>50);g.setHeld(false);g.setHeld(true);run(g,.5);assert.ok(g.altitude>3);});
 test('lane changes interpolate and clamp at edges',()=>{const g=game();g.moveLane(1);run(g,.1);assert.ok(g.x>0&&g.x<4);run(g,.3);assert.equal(g.x,4);g.moveLane(1);run(g,.4);assert.equal(g.x,4);g.moveLane(-1);g.moveLane(-1);run(g,.7);assert.equal(g.x,-4);});
 test('each airborne lane change spends 25 gas once and completes its roll before another change',()=>{

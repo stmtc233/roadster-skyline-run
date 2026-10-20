@@ -20,7 +20,7 @@
     </aside>
     <section id="game-shell" class="game-shell" aria-label="公路飞跃游戏" data-phase="ready">
       <canvas id="world" aria-label="白天高速公路三维游戏画面"></canvas>
-      <audio id="bgm" src="./audio/bgm.mp3" preload="metadata" loop></audio>
+      <audio id="bgm" src="./audio/bgm.mp3" preload="none" loop></audio>
       <div class="scene-shade"></div>
       <div id="loading" class="loading"><span class="loader"></span><span>正在准备公路…</span></div>
       <div class="hud" id="hud">
@@ -45,11 +45,20 @@
           </div>
           <p id="mode-note" class="mode-note">节奏放缓 20% · 更从容地应对车流</p>
           <div class="howto"><div><span class="step-icon">↔</span><b>滑动变道</b></div><span class="step-divider"></span><div><span class="step-icon">↑</span><b>按住起飞</b></div><span class="step-divider"></span><div><span class="step-icon">↓</span><b>落地攒气</b></div></div><button id="start" class="primary-button" disabled>准备中…<span>↗</span></button><div class="welcome-meta"><span id="welcome-best">本模式最佳 0 m</span><span>滑动变道 · 自动前进</span></div><p class="fiction-note">车型外观为风格化参考，危险事件为虚构游戏设定。</p>
+          <nav class="project-links" aria-label="项目与作者链接">
+            <a href="https://github.com/xiaoluuu233-star/roadster-skyline-run" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.3-4.3-2.2-6-2.7M15 22v-3.9c0-1.1-.4-1.8-.9-2.2 3-.3 6.2-1.5 6.2-6.8 0-1.5-.5-2.7-1.4-3.7.2-.4.6-1.8-.1-3.7 0 0-1.2-.4-3.9 1.4a13.5 13.5 0 0 0-7 0C5.2 1.3 4 1.7 4 1.7c-.7 1.9-.3 3.3-.1 3.7C3 6.4 2.5 7.6 2.5 9.1c0 5.3 3.2 6.5 6.2 6.8-.5.4-.9 1.2-.9 2.2V22"/></svg><span>GitHub 仓库</span><span class="link-arrow" aria-hidden="true">↗</span></a>
+            <a href="https://space.bilibili.com/350724158" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="4"/><path d="m8 2 3 4m5-4-3 4M8 11v3m8-3v3m-7 3 3 1 3-1"/></svg><span>B站主页</span><span class="link-arrow" aria-hidden="true">↗</span></a>
+          </nav>
         </div>
       </div>
       <div id="pause-panel" class="modal-backdrop" hidden><section class="dialog"><span class="eyebrow">TAKE A BREATH</span><h2>稍作停留</h2><p>公路在这里等你。<br>继续后将倒数 3 秒再出发。</p><button id="resume" class="primary-button">继续行驶 <span>→</span></button><button id="restart-paused" class="text-button">重新开始</button></section></div>
       <div id="countdown" class="countdown" hidden aria-live="assertive">3</div>
-      <div id="result" class="modal-backdrop" hidden><section class="dialog result-dialog"><span class="eyebrow" id="result-eyebrow">RUN COMPLETE</span><span id="result-mode" class="result-mode">普通模式</span><h2 id="result-title">下一次，更远。</h2><div class="result-distance"><strong id="result-distance">0</strong><span>m</span></div><p id="result-cause"></p><div class="result-stats"><div><span>本次分数</span><b id="result-score">0</b></div><div><span>最高时速</span><b><span id="result-speed">140</span><small> km/h</small></b></div><div><span>最佳距离</span><b id="result-best">0 m</b></div></div><button id="again" class="primary-button">再来一局 <span>↗</span></button><button id="home" class="text-button">返回起点</button></section></div>
+      <div id="result" class="modal-backdrop" hidden><section class="dialog result-dialog"><span class="eyebrow" id="result-eyebrow">RUN COMPLETE</span><span id="result-mode" class="result-mode">普通模式</span><h2 id="result-title">下一次，更远。</h2><div class="result-distance"><strong id="result-distance">0</strong><span>m</span></div><p id="result-cause"></p><div class="result-stats"><div><span>本次分数</span><b id="result-score">0</b></div><div><span>最高时速</span><b><span id="result-speed">140</span><small> km/h</small></b></div><div><span>最佳距离</span><b id="result-best">0 m</b></div></div><button id="again" class="primary-button">再来一局 <span>↗</span></button><button id="home" class="text-button">返回起点</button>
+        <nav class="project-links" aria-label="项目与作者链接">
+          <a href="https://github.com/xiaoluuu233-star/roadster-skyline-run" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.3 1.3-4.3-2.2-6-2.7M15 22v-3.9c0-1.1-.4-1.8-.9-2.2 3-.3 6.2-1.5 6.2-6.8 0-1.5-.5-2.7-1.4-3.7.2-.4.6-1.8-.1-3.7 0 0-1.2-.4-3.9 1.4a13.5 13.5 0 0 0-7 0C5.2 1.3 4 1.7 4 1.7c-.7 1.9-.3 3.3-.1 3.7C3 6.4 2.5 7.6 2.5 9.1c0 5.3 3.2 6.5 6.2 6.8-.5.4-.9 1.2-.9 2.2V22"/></svg><span>GitHub 仓库</span><span class="link-arrow" aria-hidden="true">↗</span></a>
+          <a href="https://space.bilibili.com/350724158" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="4"/><path d="m8 2 3 4m5-4-3 4M8 11v3m8-3v3m-7 3 3 1 3-1"/></svg><span>B站主页</span><span class="link-arrow" aria-hidden="true">↗</span></a>
+        </nav>
+      </section></div>
       <button id="sound" class="sound-button" aria-label="关闭音效" title="音效开关"><svg viewBox="0 0 24 24"><path d="m11 5-5 4H3v6h3l5 4zM15 8q5 4 0 8M18 5q8 7 0 14"/></svg><span>音效开启</span></button>
       <button id="music" class="sound-button music-button" role="switch" aria-checked="true" aria-label="关闭背景音乐" title="背景音乐：开启"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12M9 9l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="16" cy="16" rx="3" ry="2"/><path class="music-slash" d="m4 4 16 16"/></svg><span id="music-state">背景音乐开启</span></button>
       <div id="error" class="modal-backdrop" hidden><section class="dialog"><h2>公路暂未就绪</h2><p id="error-text">请使用支持 WebGL 的新版浏览器，刷新后重试。</p><button onclick="location.reload()" class="primary-button">重新加载 <span>↻</span></button></section></div>
