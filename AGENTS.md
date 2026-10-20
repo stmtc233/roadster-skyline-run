@@ -17,8 +17,10 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 | `dist/scene.js` | `createScene(canvas)` → `{render(state,dt), resize(), ready}`，只读游戏状态；`ready` 是材质预热 Promise，启动前等待 |
 | `dist/models.js` | 车辆和电池模型工厂；没有 `document` 时跳过画布徽标，能解析 `three` 的 Node 环境里也可实例化 |
 | `dist/app.js` | 触屏/键盘输入、HUD、暂停与倒数、记录存储，串起其他模块 |
-| `dist/audio.js` | WebAudio 引擎声与风声，必须在用户手势之后才创建 |
+| `dist/audio.js` | `AudioEngine` 负责 WebAudio 音效，`BackgroundMusic` 独立控制 `#bgm` 的媒体播放；两者都在用户手势后解锁 |
 | `tests/game-v2.test.mjs` | 规则测试 |
+| `tests/modes.test.mjs` | 两种模式、尾喷状态与普通模式的预警、生存及碰撞测试 |
+| `tests/su7.test.mjs` | SU7 车流占比、蓝色车漆及不同模式和帧率下的碰撞、飞越测试 |
 | `tests/pilot.mjs` | 测试用的前瞻自动驾驶，用于生存测试 |
 
 ## 模拟约定（`dist/game.js`）
@@ -28,11 +30,12 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 - 固定步长 `1/120` s；`update(dt)` 单帧最多吃进 0.1 s，30/60/120 Hz 结果必须一致。
 - 时间：`time` 只在行驶时走，决定车速和危险节奏；`clock` 在撞车后的滑行阶段也继续走，用于车灯闪烁、变道计时等动画和车辆脚本。
 - 距离：`distance` 是成绩，撞车瞬间冻结；`travel` 是画面滚动用的实际行驶距离，撞车后随滑行继续增加。
-- 车速由 `SPEED`（`start` / `top` / `ramp`）决定，是时间的函数；`pace` getter 给出 0–1 的速度进度，镜头、风线和风声都读它。调手感先改 `SPEED`。
+- 车速由 `MODES`（`start` / `top` / `ramp`）决定，是时间的函数；普通模式 `normal` 为 112→320 km/h，喷气模式 `jet` 沿用 `SPEED` 的 140→400 km/h，时间常数均为 28 s。`speedCurve` 读取本局配置；`pace` 是本模式的 0–1 速度进度，镜头、风线和风声都读它。初始车流的车速按模式同比缩放。
+- `new Game({mode})` 默认普通模式；`start(mode)` 可切换并重开，省略时保留当前模式，未知模式退回普通模式。`mode` 保持字符串，配置存在模块级常量中；`boosting` 仅在喷气模式的 `running` 阶段为 true，不额外扣气。两种模式共用飞行、侧翻和计分规则。
 - 气量与飞行：喷气每秒耗 25，地面每秒回 24；上升 8.5 m/s，下降 6 m/s，高度上限 8 m。气量耗尽后必须松手才能再次起飞。变道横移 13 m/s。
 - 空中变道参数在 `AIR_LANE`：每跨一条车道额外耗 25 气量，0.425 s 完成 360° 翻滚（`rollRemaining` / `rollDirection`），完成前不再接收变道。`moveLane()` 返回是否成功，拒绝、越界、暂停都不扣气。以 `altitude - deck() > .05` 判断空中，地面和货车顶免费；扣到 0 同样进入耗尽状态。动画只读模拟时间，暂停冻结，重开清空。
-- 所有车辆都在 `traffic` 里（`model` 为 `sedan` / `suv` / `mpv` / `m9` / `truck` / `semi`），各自有真实车速、跟车刹车、转向灯变道（`signal` 先闪 `SIGNAL` 秒再横移）。弹出的电池在 `batteries` 里。`obstacles()` 返回两者合集。车身尺寸都在 `BODY`；货车很长，凡是按车距判断的地方（`laneClear`、生成、`launchRear`）都要用 `length` 计算，不要写死车距。
-- 车流比例在 `spawnTraffic`：轿车约一半，MPV 和 M9 各约 1/7，iCAR SUV 约 1/10，货车约 1/7。新车有 35% 放在玩家当前车道，保证前方常有可能急刹的车。货车车速贴近玩家（0.70–0.78 倍），方便落上去。
+- 所有车辆都在 `traffic` 里（`model` 为 `sedan` / `su7` / `suv` / `mpv` / `m9` / `truck` / `semi`），各自有真实车速、跟车刹车、转向灯变道（`signal` 先闪 `SIGNAL` 秒再横移）。弹出的电池在 `batteries` 里。`obstacles()` 返回两者合集。车身尺寸都在 `BODY`；货车很长，凡是按车距判断的地方（`laneClear`、生成、`launchRear`）都要用 `length` 计算，不要写死车距。
+- 车流比例在 `spawnTraffic`：轿车约一半，其中蓝色 SU7 为总车流的 8%、普通轿车 40%；MPV 和 M9 各约 1/7，iCAR SUV 约 1/10，货车约 1/7。新车有 35% 放在玩家当前车道，保证前方常有可能急刹的车。货车车速贴近玩家（0.70–0.78 倍），方便落上去。
 - 货车（`deck: true`）的车厢顶是高 `height`（3.9 m）的平台：`deck()` 给出玩家脚下的平台高度，存在 `floor` 里。判定和 `hit()` 一致：投影重叠且 `altitude + .1 >= height` 就站在上面，否则就是撞车。站在车厢顶上算落地，照常攒气；开过车头或变道离开后从车厢高度往下落。身后的车只在玩家低到会被撞时才把玩家当成前车（`leader()`），所以玩家站在货车顶上或从车上方飞过时，下面的车照常行驶。
 - 急刹（每秒减速超过 6.5 m/s²）时 `flash` 为 true，刹车灯频闪；普通减速只是常亮。
 - 车与车接触时按质量交换动量，双方进入 `crashed`：打双闪、打转、以 `SLIDE` 减速滑行到停，之后作为事故车留在原地成为障碍。司机看到事故车或急停车会紧急刹车，并尽量变道绕开。
@@ -52,19 +55,21 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 
 - 渲染器只读状态，不写回模拟；每帧不要新建对象，场景物件用 InstancedMesh 或对象池。
 - 翻滚角度用模拟进度加 `accumulator` 的不足一步时间连续呈现；暂停时保留已显示的进度，避免清空累积时间造成倒跳。喷气材质在开始按钮启用前预热，透明双面气雾用 `forceSinglePass` 减少绘制。
+- 横排四个尾部喷口和主动尾翼仅在喷气模式显示。尾部气雾由 `boosting` 驱动，暂停与碰撞时熄灭；尾翼由 `createRoadster()` 的 `userData.setWing(amount, enabled)` 控制，跟随开局前 1.1 s 的模拟时间平滑展开，暂停和碰撞时冻结，重开复位。几何体复用，和侧翻喷气一起预热；尾喷与尾翼跟随车身，不改变模拟速度或飞行气量。
 - 后视镜是车内镜：按 `#mirror-view` 的矩形用 scissor 视口单独渲染，并把整个场景 `scale.x = -1` 做左右镜像（这样 three.js 的面剔除和光照仍然正确），渲染完立刻恢复。镜像渲染时隐藏玩家车、玩家阴影和风线。
 - 车辆按 `model` 分池复用；刹车灯（`flash` 时频闪）、转向灯/双闪、失控车的闪灯都由模拟里的 `brake` / `flash` / `signal` / `hazard` / `horn` 驱动。急刹时车头下沉（视图自己平滑的 `pitch`）。
 - 崴脚的 M9 每帧调用 `userData.setBroken(index, amount)`，`amount` 由 `clock - brokenAt` 在 0.3 s 内从 0 到 1；复用到正常车时用 `amount = 0` 复原。拖地时按模型对应轮位向后喷火花。M9 视图自带一个三角警示牌，只在 `triangle` 为 true 时显示，放在车后 32 m。
 - 玩家影子落在 `floor` 上（站在货车上时在车厢顶）。
 - 侧翻以车身中心为轴，起止平滑加减速、侧向喷气交叠切换；车身在 `altitude` 上叠加平滑抬升，中段保持平稳，避免落上货车时因 `floor` 改变而跳动；碰撞高度、HUD 和镜头仍读模拟的 `altitude`。
 - 矮屏（高度 < 844px）由 compact 镜头逻辑压低视角，保证玩家车留在底部操作区上方。改镜头后至少检查 390×844 和 375×667。
-- 模型接口：`createSedan({color, braking})`、`createSUV()`、`createMPV()`、`createM9()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；`userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，M9 的 `userData.setBroken` 用于崴脚姿态。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。货车的静态部件按材质合并成一个网格，几何体在所有复用的实例之间共享，场景不要 dispose 它们。
+- 模型接口：`createSedan({color, braking})`、`createSU7({color})`、`createSUV()`、`createMPV()`、`createM9()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；`userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，M9 的 `userData.setBroken` 用于崴脚姿态。SU7 的轮胎半径为 `.355` m、轴距 3 m，独立截面车身和静态饰件按材质合并并缓存，车漆和左右转向灯材质按车独立。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。车辆共享的几何体不要由场景 dispose。
 
 ## 输入约定（`dist/app.js`）
 
 - 起飞按钮和滑动变道各自跟踪独立的指针，按住飞行时可以另一根手指滑动；松开起飞不能取消另一根手指的滑动。
 - `pointercancel`、`lostpointercapture`、窗口失焦、切到后台都会暂停；继续时倒数 3 秒。
-- `localStorage`（`roadster-best`、`roadster-muted`、`roadster-hints`）读写都包在 try/catch 中，存储不可用时游戏照常运行。
+- 模式只在开始页切换，重开保留模式。`localStorage` 的 `roadster-mode` 保存选择，`roadster-best-normal` / `roadster-best-jet` 分别记成绩；旧 `roadster-best` 只用于读取喷气模式的历史成绩。静音和危险提示仍用 `roadster-muted`、`roadster-hints`。`roadster-music` 单独保存音乐开关（默认 `1` 开启）；不与音效静音联动。所有存储读写包在 try/catch 中，存储不可用时游戏照常运行。
+- BGM 是 `dist/audio/bgm.mp3`，使用独立 HTMLAudioElement 循环播放，音量 `.45`；不接入音效 master。主页右上角的圆形 `#music` 按钮位于 `#sound` 下方，其他阶段隐藏。只在用户点击开始或音乐开关后解锁，不强行自动播放。`phase()` 和窗口前后台事件统一通过 `syncMusic()` 控制暂停，继续倒数期间保持暂停；不要在动画帧里调用 `play()`。播放拒绝应被捕获，音频失败不影响游戏。
 
 ## 测试注意事项
 

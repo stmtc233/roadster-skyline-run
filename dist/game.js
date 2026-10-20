@@ -2,12 +2,16 @@ const STEP=1/120;
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 // Launch speed and the top speed each run accelerates toward (km/h); ramp is the time constant in seconds.
 export const SPEED=Object.freeze({start:140,top:400,ramp:28});
+export const MODES=Object.freeze({
+ normal:Object.freeze({label:'普通模式',start:112,top:320,ramp:28}),
+ jet:Object.freeze({label:'喷气模式',...SPEED})
+});
 // One airborne lane change spends a fixed burst and completes a full roll in seconds.
 export const AIR_LANE=Object.freeze({gas:25,duration:.425});
 // Collision footprints in metres and masses in tonnes. Lane centres sit 4 m apart.
 // Trucks have a flat box roof (deck) at their height that the player can land on and drive across.
-const BODY={player:{width:1.9,length:4.6,mass:2},sedan:{width:1.85,length:4.6,height:1.45,mass:1.6},suv:{width:2,length:4.8,height:1.9,mass:2.1},mpv:{width:2,length:5.5,height:1.92,mass:2.7},m9:{width:2,length:5.23,height:1.8,mass:2.6},truck:{width:2.5,length:12,height:3.9,mass:10,deck:true},semi:{width:2.55,length:16.5,height:3.9,mass:16,deck:true},battery:{width:1.8,length:1.8,height:.35,mass:.5}};
-const COLORS={m9:['#174776','#295b76','#416b82','#174776'],truck:['#2f5f9e','#e2e1da','#d0a334','#3f7a5a'],semi:['#a73a2f','#e2e1da','#2f5f9e','#e07a1f']};
+const BODY={player:{width:1.9,length:4.6,mass:2},sedan:{width:1.85,length:4.6,height:1.45,mass:1.6},su7:{width:1.963,length:4.997,height:1.455,mass:1.98},suv:{width:2,length:4.8,height:1.9,mass:2.1},mpv:{width:2,length:5.5,height:1.92,mass:2.7},m9:{width:2,length:5.23,height:1.8,mass:2.6},truck:{width:2.5,length:12,height:3.9,mass:10,deck:true},semi:{width:2.55,length:16.5,height:3.9,mass:16,deck:true},battery:{width:1.8,length:1.8,height:.35,mass:.5}};
+const COLORS={su7:['#087fb7'],m9:['#174776','#295b76','#416b82','#174776'],truck:['#2f5f9e','#e2e1da','#d0a334','#3f7a5a'],semi:['#a73a2f','#e2e1da','#2f5f9e','#e07a1f']};
 // Blinking time before a lane change (s), sideways speed (m/s), braking, pick-up, crash sliding and broken-suspension drag (m/s²), battery drop delay (s).
 const SIGNAL=1.05,LATERAL=3.6,HARD_BRAKE=9,SOFT_BRAKE=6,PICKUP=2.2,SLIDE=6.5,BATTERY_SLIDE=14,DRAG=8,EJECT=1.25;
 // A broken-down car rests this far beyond its lane centre, half on the road edge, still blocking the lane.
@@ -20,7 +24,7 @@ const KINDS=['front','rear','battery','breakdown','parked'];
 // How strongly the director favours each car-borne hazard when several are ready at once.
 const WEIGHT={front:3,breakdown:12,battery:1.5};
 // The opening road already carries traffic, so the first hazards come from cars the player can see.
-const OPENING=[[-1,45,27,'sedan'],[0,100,29,'sedan'],[1,130,30,'suv'],[-1,170,31,'sedan'],[1,215,31,'truck'],[0,250,31,'m9']];
+const OPENING=[[-1,45,27,'su7'],[0,100,29,'sedan'],[1,130,30,'suv'],[-1,170,31,'sedan'],[1,215,31,'truck'],[0,250,31,'m9']];
 // Whether body o is in car c's path: c's lane now or the lane it is moving into, against where o is or is heading.
 const inPath=(c,o)=>{const lane=c.lane*4,heading=o.signal?o.lane*4:o.x;return Math.abs(o.x-c.x)<2.4||Math.abs(o.x-lane)<2.4||Math.abs(heading-c.x)<2.4||Math.abs(heading-lane)<2.4;};
 // Reused result of Game#leader, read immediately by the caller.
@@ -28,8 +32,11 @@ const LEAD={gap:0,speed:0,stopping:false};
 // Shown once per hazard type; afterwards the lights, horn and mirror carry the warning.
 export const HINTS=Object.freeze({front:'前车刹车灯狂闪急刹 · 变道或起飞',rear:'后方车辆刹车断裂 · 听喇叭、看后视镜',battery:'邻车双闪急停 · 小心弹出的电池',breakdown:'前车悬挂断裂 · 拖着火花急停',parked:'路边抛锚车占着车道 · 提前变道',truck:'大货车车厢顶可以落脚 · 起飞踩上去'});
 export class Game {
- constructor({random=Math.random,autoSpawn=true,trafficEnabled=true}={}){this.random=random;this.autoSpawn=autoSpawn;this.trafficEnabled=trafficEnabled;this.nextId=1;this.start();this.phase='ready';}
- start(){Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:SPEED.start,maxSpeed:SPEED.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,accumulator:0,crashSpeed:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed,model);}
+ constructor({random=Math.random,autoSpawn=true,trafficEnabled=true,mode='normal'}={}){this.random=random;this.autoSpawn=autoSpawn;this.trafficEnabled=trafficEnabled;this.nextId=1;this.start(mode);this.phase='ready';}
+ start(mode=this.mode){this.mode=Object.hasOwn(MODES,mode)?mode:'normal';const curve=this.speedCurve;Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:curve.start,maxSpeed:curve.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,accumulator:0,crashSpeed:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed*curve.start/SPEED.start,model);}
+ get speedCurve(){return MODES[this.mode];}
+ // The rear jets power the jet-mode speed curve automatically, independently of flight gas.
+ get boosting(){return this.mode==='jet'&&this.phase==='running';}
  setHeld(v){this.held=!!v&&this.phase==='running';if(!this.held)this.exhausted=false;}
  moveLane(direction){
   if(this.phase!=='running'||!Number.isFinite(direction)||!direction||this.rollRemaining>0)return false;
@@ -45,16 +52,16 @@ export class Game {
  pause(){if(this.phase!=='running')return;this.setHeld(false);this.thrusting=false;this.phase='paused';this.accumulator=0;}
  resume(){if(this.phase==='paused'){this.phase='running';this.held=false;this.accumulator=0;}}
  // 0 at launch speed, 1 at top speed; drives speed-dependent camera, scenery and sound.
- get pace(){return clamp((this.speed-SPEED.start)/(SPEED.top-SPEED.start),0,1);}
+ get pace(){const s=this.speedCurve;return clamp((this.speed-s.start)/(s.top-s.start),0,1);}
  // Least time between the moments two hazards would hit the player: generous at first, tighter as the run goes on.
  get spacing(){return Math.max(1.2,2.2-this.time/60);}
  // When the latest live hazard reaches the player, so the next one can be lined up behind it.
  get busyUntil(){return this.events.reduce((t,e)=>e.resolved||e.stage==='planned'?t:Math.max(t,e.contactAt),-Infinity);}
  // The player's current forward acceleration along the speed curve (m/s²).
- get accel(){return this.phase==='running'?(SPEED.top-this.speed)/SPEED.ramp/3.6:0;}
+ get accel(){const s=this.speedCurve;return this.phase==='running'?(s.top-this.speed)/s.ramp/3.6:0;}
  // The newest live hazard, so a second one arriving mid-way still gets noticed.
  get warning(){const e=this.events.findLast(e=>!e.resolved&&e.stage!=='planned');return e?{id:e.id,kind:e.kind,stage:e.stage,text:HINTS[e.kind]}:null;}
- addTraffic(lane,z,speed,model='sedan'){const color=(COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'])[Math.floor(this.random()*4)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0};this.traffic.push(o);return o;}
+ addTraffic(lane,z,speed,model='sedan'){const palette=COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'],color=palette[Math.floor(this.random()*palette.length)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0};this.traffic.push(o);return o;}
  // Bumper-to-bumper distance at which a body touches the player's car.
  reach(o){return (BODY.player.length+o.length)/2-.12;}
  // Metres the player closes on a hazard within `seconds` if nobody reacts, following the hazard's scripted speed.
@@ -199,7 +206,7 @@ export class Game {
   this.rollRemaining=Math.max(0,this.rollRemaining-dt);if(this.rollRemaining<1e-8){this.rollRemaining=0;this.rollDirection=0;}
   const running=this.phase==='running';let v;
   if(running){
-   this.time+=dt;this.speed=SPEED.start+(SPEED.top-SPEED.start)*(1-Math.exp(-this.time/SPEED.ramp));this.maxSpeed=Math.max(this.maxSpeed,this.speed);v=this.speed/3.6;
+   const s=this.speedCurve;this.time+=dt;this.speed=s.start+(s.top-s.start)*(1-Math.exp(-this.time/s.ramp));this.maxSpeed=Math.max(this.maxSpeed,this.speed);v=this.speed/3.6;
    this.distance+=v*dt;this.score=Math.floor(this.distance/10);
    const dx=this.lane*4-this.x;this.x+=Math.sign(dx)*Math.min(Math.abs(dx),13*dt);
    this.thrusting=this.held&&!this.exhausted&&this.gas>0;this.floor=this.deck();
@@ -320,8 +327,8 @@ export class Game {
   if(this.traffic.filter(o=>o.z>0).length>=10)return;
   // New cars favour the player's lane, so there is usually someone ahead of them who might brake.
   const lane=this.random()<.35?this.lane:Math.floor(this.random()*3)-1,z=210+this.random()*60,roll=this.random(),pace=this.random();
-  // Mostly sedans, with iCARs, M9s, MPVs and trucks mixed in; trucks run closer to the player's speed.
-  const model=roll<.10?'suv':roll<.24?'mpv':roll<.37?'m9':roll<.46?'truck':roll<.52?'semi':'sedan',{length}=BODY[model];
+  // Sedans include SU7-inspired fastbacks; trucks run closer to the player's speed.
+  const model=roll<.10?'suv':roll<.24?'mpv':roll<.37?'m9':roll<.46?'truck':roll<.52?'semi':roll<.60?'su7':'sedan',{length}=BODY[model];
   const speed=v*(BODY[model].deck?.7+pace*.08:.6+pace*.2),t=z/Math.max(1,v-speed),blocked=new Set([lane]);
   // Long vehicles occupy a lane for longer as the player passes them.
   for(const o of this.obstacles()){const closing=v-o.speed;if(closing>1&&o.z>0&&Math.abs(o.z/closing-t)<1.4+((o.length+length)/2-4.6)/closing)blocked.add(Math.round(o.x/4));}

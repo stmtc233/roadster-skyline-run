@@ -162,6 +162,17 @@ export function createRoadster() {
   round(g,M.black,0,.31,2.18,1.47,.22,.10,.05);
   strip(g,M.red,0,.615,2.224,1.42,.036,.045);
   strip(g,M.black,0,.69,1.92,1.50,.035,.24);
+  // A flush aero blade rises on two telescoping supports, then holds its deployed incidence.
+  const aero=new THREE.Group();aero.name='Roadster active aero';aero.visible=false;g.add(aero);
+  const wing=new THREE.Group();wing.name='Roadster active wing';wing.position.set(0,.772,1.92);aero.add(wing);
+  strip(wing,M.white,0,0,0,1.66,.045,.32);
+  strip(wing,M.black,0,-.024,0,1.60,.018,.30);
+  const supports=[-.52,.52].map(x=>box(aero,M.darkAlloy,x,.75,1.92,.045,.001,.09));
+  g.userData.setWing=(amount,enabled)=>{
+    const a=Math.min(1,Math.max(0,amount));aero.visible=enabled;
+    wing.position.set(0,.772+.42*a,1.92+.06*a);wing.rotation.x=-.24*a;
+    for(const support of supports){support.visible=a>.001;support.position.set(support.position.x,.75+.21*a,1.92+.03*a);support.scale.y=.42*a;support.rotation.x=.14*a;}
+  };
   // Diffuser fins and lower splitter add real depth in the principal rear chase view.
   for(const x of [-.54,-.27,0,.27,.54]) box(g,M.black,x,.24,2.16,.035,.15,.32);
   box(g,M.black,0,.24,-2.23,1.48,.045,.15);
@@ -467,6 +478,150 @@ export function createSedan({color,braking=false}={}) {
   g.userData.brakeLights.push(strip(g,brake,0,.76,2.29,.46,.035,.055));
   round(g,M.black,0,.32,2.27,1.65,.13,.1,.04);
   wheels(g,-1.42,1.39,.84,.32);return g;
+}
+
+const SU7={
+  glass:mat('#142932',.58,.14),lens:mat('#64858b',.7,.17,{side:THREE.DoubleSide}),
+  trim:mat('#10191e',.35,.36),silver:mat('#d4dfe0',.84,.2),
+};
+let su7Parts;
+// A rounded shoulder with genuine wheel cut-outs, rather than the sedan's extruded box.
+function su7Shell() {
+  const sections=[[-2.4985,.66,.64],[-2.42,.81,.69],[-2.23,.91,.75],[-1.99,.955,.79],
+    [-1.86,.972,.81],[-1.73,.979,.825],[-1.5,.9815,.835],[-1.27,.98,.845],[-1.1,.978,.86],
+    [-.9,.976,.87],[-.35,.974,.875],[.35,.974,.885],[.9,.979,.91],[1.1,.9815,.925],
+    [1.27,.9815,.94],[1.5,.9815,.955],[1.73,.977,.965],[1.86,.97,.965],[1.99,.957,.96],
+    [2.23,.925,.95],[2.42,.855,.925],[2.4985,.72,.87]];
+  const positions=[],indices=[],n=11;
+  for(const [z,w,t] of sections) {
+    let arch=.235;
+    for(const axle of [-1.5,1.5]) {
+      const d=Math.abs(z-axle);
+      if(d<.415)arch=Math.max(arch,.355+Math.sqrt(.415*.415-d*d));
+    }
+    positions.push(-w*.77,.235,z,-w,arch,z,-w,t-.075,z,-w*.87,t+.005,z,-w*.55,t+.028,z,
+      0,t+.037,z,w*.55,t+.028,z,w*.87,t+.005,z,w,t-.075,z,w,arch,z,w*.77,.235,z);
+  }
+  for(let j=0;j<sections.length-1;j++)for(let i=0;i<n;i++) {
+    const a=j*n+i,b=j*n+(i+1)%n,c=a+n,d=b+n;indices.push(a,c,b,b,c,d);
+  }
+  const end=(sections.length-1)*n;
+  for(let i=1;i<n-1;i++)indices.push(0,i,i+1,end,end+i+1,end+i);
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setIndex(indices);geometry.computeVertexNormals();return geometry.toNonIndexed();
+}
+function su7Patch(vertices) {
+  const points=[];
+  for(let i=1;i<vertices.length-1;i++)points.push(...vertices[0],...vertices[i],...vertices[i+1]);
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+  geometry.computeVertexNormals();return geometry;
+}
+function su7Tube(points,radius=.014,segments=24) {
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p))),segments,radius,4,false).toNonIndexed();
+}
+// All SU7 buffers are built once; pooled traffic copies only allocate their moving groups and lamp/paint materials.
+function buildSU7() {
+  if(su7Parts)return su7Parts;
+  const k=kit(),prototype=new THREE.Group(),paint=M.white,dark=SU7.trim,geometries=[];
+  const shape=(material,geometry)=>{geometries.push(geometry);k.shape(material,geometry);};
+  const shell=su7Shell(),skin=new THREE.Mesh(shell,paint),probe=new THREE.Raycaster();shape(paint,shell);
+  // Fit trim to the actual coachwork once, so curved lamps and the lip cannot float above the shell.
+  const rearPoint=(x,y,out)=>{
+    probe.set(new THREE.Vector3(x,y,3),new THREE.Vector3(0,0,-1));
+    return [x,y,probe.intersectObject(skin,false)[0].point.z+out];
+  };
+  const halo=side=>[[0,.88],[side*.54,.88],[side*.74,.89],[side*.80,.90],
+    [side*.845,.84],[side*.77,.785],[side*.54,.785],[0,.785]];
+  // The long bonnet rises into a low, uninterrupted panoramic fastback.
+  const canopy=new THREE.Group();
+  cabin(canopy,SU7.glass,[{z:-1.10,w:.735,b:.88,t:.91,r:.46},{z:-.53,w:.79,b:.89,t:1.31,r:.59},
+    {z:-.15,w:.785,b:.90,t:1.425,r:.62},{z:.53,w:.78,b:.92,t:1.425,r:.62},
+    {z:1.02,w:.76,b:.94,t:1.30,r:.58},{z:1.55,w:.71,b:.96,t:1.08,r:.5},{z:1.91,w:.59,b:.96,t:.995,r:.42}]);
+  const glass=canopy.children[0].geometry.toNonIndexed(),glazing=new THREE.Mesh(glass,SU7.glass);
+  shape(SU7.glass,glass);canopy.children[0].geometry.dispose();
+  const topPoint=(x,z,out)=>{
+    probe.set(new THREE.Vector3(x,2,z),new THREE.Vector3(0,-1,0));
+    return [x,probe.intersectObjects([skin,glazing],false)[0].point.y+out,z];
+  };
+  k.box(dark,0,.245,0,1.54,.07,4.25);
+  // Rounded ducktail lip, rear diffuser and the narrow front cooling mouth.
+  const lip=[[-.8,2.28],[-.53,2.38],[0,2.405],[.53,2.38],[.8,2.28]].map(([x,z])=>topPoint(x,z,.008));
+  shape(paint,su7Tube(lip,.018));
+  k.box(dark,0,.36,2.40,1.53,.18,.16);k.box(dark,0,.31,2.45,1.63,.055,.1);
+  for(const x of [-.55,-.28,0,.28,.55])k.box(dark,x,.30,2.36,.025,.14,.29);
+  shape(dark,su7Patch([[-.61,.49,-2.501],[-.56,.515,-2.501],[.56,.515,-2.501],
+    [.61,.49,-2.501],[.52,.35,-2.501],[-.52,.35,-2.501]]));
+  k.box(dark,0,.285,-2.43,1.57,.045,.12);
+  k.box(dark,0,.575,2.493,.49,.17,.009);k.box(SU7.silver,0,.578,2.499,.36,.09,.006);
+  // A compact roof lidar pod sits immediately above the windscreen.
+  k.box(dark,0,1.427,-.24,.235,.056,.18);k.box(SU7.glass,0,1.441,-.335,.17,.024,.008);
+  for(const side of [-1,1]) {
+    const rail=[[side*.733,.91,-1.08],[side*.65,1.31,-.50],[side*.635,1.416,-.13],
+      [side*.635,1.416,.51],[side*.64,1.305,1.03],[side*.69,1.008,1.68]];
+    const railCurve=new THREE.CatmullRomCurve3(rail.map(p=>new THREE.Vector3(...p))),fitted=[];
+    for(let i=0;i<=24;i++){const p=railCurve.getPoint(i/24);fitted.push(topPoint(p.x,p.z,.004));}
+    shape(paint,su7Tube(fitted,.012,24));
+    k.link(dark,[side*.787,.925,.16],[side*.674,1.40,.16],.017);
+    k.link(dark,[side*.737,.90,-1.08],[side*.771,.93,.15],.012);
+    k.link(dark,[side*.771,.93,.15],[side*.706,.972,1.54],.012);
+    // Flush handles and subtle door shut lines remain below the side glass.
+    for(const z of [-.38,.84])k.box(SU7.silver,side*.978,.814,z,.012,.027,.20);
+    for(const z of [-.92,.26,1.12])k.link(dark,[side*.978,.79,z],[side*.978,.30,z+.04],.004);
+    k.box(dark,side*.967,.272,.11,.035,.065,2.18);
+    k.link(dark,[side*.76,1.00,-.88],[side*1.008,.975,-.91],.022);
+    k.box(paint,side*1.035,1.00,-.92,.17,.075,.22);k.box(dark,side*1.042,.973,-.92,.18,.025,.22);
+    // The waterdrop headlight tapers inward; four short LEDs sit in its silver inner contour.
+    const lens=[[.49,.746,-2.32],[.69,.784,-2.37],[.825,.811,-2.25],[.875,.846,-2.045],
+      [.80,.866,-1.89],[.695,.844,-1.92],[.59,.79,-2.10]].map(([x,y,z])=>[side*x,y,z]);
+    shape(SU7.lens,su7Patch(side>0?lens.slice().reverse():lens));
+    shape(SU7.silver,su7Tube([...lens,lens[0]],.014,24));
+    const led=[[.555,.774,-2.27],[.635,.803,-2.185],[.71,.832,-2.10],[.78,.854,-2.015]];
+    for(const [x,y,z] of led)k.link(M.head,[side*(x-.036),y,z+.044],[side*(x+.025),y+.007,z-.042],.014);
+    k.box(dark,side*.868,.48,-2.26,.072,.19,.08);k.box(dark,side*.88,.555,2.39,.056,.19,.052);
+    // A dark recess behind the continuous rear halo gives the thin red loop a crisp edge.
+    shape(dark,su7Tube(halo(side).map(([x,y])=>rearPoint(x,y,.001)),.024,30));
+  }
+  const body=[...k.build(prototype,'su7-body').entries()].map(([material,part])=>({geometry:part.geometry,material}));
+  // Five broad, swept petals leave black gaps between the alloy spokes.
+  const petal=new THREE.Shape();petal.moveTo(-.035,.035);petal.quadraticCurveTo(-.105,.12,-.073,.225);
+  petal.quadraticCurveTo(-.047,.28,.023,.263);petal.quadraticCurveTo(.089,.248,.065,.186);petal.lineTo(.035,.045);petal.closePath();
+  const spoke=new THREE.ExtrudeGeometry(petal,{depth:.018,bevelEnabled:false,curveSegments:3}).rotateY(Math.PI/2).translate(.122,0,0);
+  const wheelParts=[];
+  for(let i=0;i<5;i++)wheelParts.push([0,0,0,1,1,1,spoke,Math.PI*2*i/5,0,0]);
+  const ring=new THREE.TorusGeometry(.267,.014,4,24).rotateY(Math.PI/2).translate(.128,0,0).toNonIndexed();
+  const hub=new THREE.CylinderGeometry(.06,.06,.03,12).rotateZ(Math.PI/2).translate(.134,0,0).toNonIndexed();
+  wheelParts.push([0,0,0,1,1,1,ring,0,0,0],[0,0,0,1,1,1,hub,0,0,0]);
+  const alloy=merge(wheelParts);spoke.dispose();ring.dispose();hub.dispose();
+  const tyre=new THREE.CylinderGeometry(.355,.355,.226,20).rotateZ(Math.PI/2);
+  const brake=[],amber=[];
+  for(const side of [-1,1]) {
+    const center=side*.46;
+    brake.push(su7Tube(halo(side).map(([x,y])=>{
+      const p=rearPoint(x,y,.018);p[0]-=center;p[1]-=.845;p[2]-=2.47;return p;
+    }),.014,30));
+    amber.push(merge([[side*.866-center,.76,-2.30,.072,.027,.09,unitBox,0,side*.27,0],
+      [side*.856-center,.775,2.449,.13,.026,.027,unitBox,0,side*.33,0],
+      [side*1.043-center,.991,-.801,.13,.018,.01,unitBox,0,0,0]]));
+  }
+  for(const geometry of geometries)geometry.dispose();
+  su7Parts={body,alloy,tyre,brake,amber};return su7Parts;
+}
+
+export function createSU7({color='#087fb7'}={}) {
+  const parts=buildSU7(),g=new THREE.Group();g.name='Xiaomi SU7 inspired fastback';
+  const paint=mat(color,.62,.25),red=tail(g);g.userData.paint=paint;g.userData.hazardLights=[];
+  for(const part of parts.body)mesh(part.geometry,part.material===M.white?paint:part.material,g);
+  for(let i=0;i<2;i++) {
+    const side=i===0?-1:1,amber=mat('#bb760d',.18,.22,{emissive:'#ff9400',emissiveIntensity:0});
+    const lamp=mesh(parts.brake[i],red,g,side*.46,.845,2.47);lamp.name='SU7 halo taillight';g.userData.brakeLights.push(lamp);
+    const indicator=mesh(parts.amber[i],amber,g,side*.46);indicator.name='SU7 amber indicator';g.userData.hazardLights.push(indicator);
+  }
+  const rolling=[];
+  for(const z of [-1.5,1.5])for(const side of [-1,1]) {
+    const wheel=new THREE.Group();wheel.position.set(side*.863,.355,z);g.add(wheel);
+    mesh(parts.tyre,M.rubber,wheel);mesh(parts.alloy,SU7.silver,wheel).rotation.y=side<0?Math.PI:0;rolling.push(wheel);
+  }
+  g.userData.wheels=rolling;return g;
 }
 
 // Heavy trucks. Static parts are merged per material, so a whole rig costs a handful of draw calls;

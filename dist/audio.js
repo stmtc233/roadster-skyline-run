@@ -1,3 +1,16 @@
+// Music uses its own media element, so the effects master never mutes it.
+export class BackgroundMusic {
+  constructor(element,enabled=true){this.element=element;this.enabled=enabled;this.unlocked=false;this.suspended=false;element.loop=true;element.volume=.45;}
+  unlock(){this.unlocked=true;this.sync();}
+  setEnabled(value){this.enabled=value;this.sync();}
+  setSuspended(value){this.suspended=value;this.sync();}
+  sync(){
+    if(!this.enabled||!this.unlocked||this.suspended){this.element.pause();return;}
+    if(!this.element.paused)return;
+    try{const play=this.element.play();play?.catch(()=>{});}catch{/* Music must never block gameplay. */}
+  }
+}
+
 export class AudioEngine {
   constructor(muted=false){this.muted=muted;this.ctx=null;}
   async unlock(){
@@ -29,9 +42,9 @@ export class AudioEngine {
     this.motor.frequency.setTargetAtTime(50+state.speed*.45,t,.15);
     this.motorGain.gain.setTargetAtTime(running?.045:0,t,.08);
     // Road wind swells and brightens with pace; thrust stays the loudest air sound.
-    const pace=state.pace||0,rolling=state.rollRemaining>0;
-    this.air.gain.setTargetAtTime(running?(rolling?.3:state.thrusting?.24:.03+pace*.07):0,t,.035);
-    this.filter.frequency.setTargetAtTime(rolling?2600:state.thrusting?1700:520+pace*700,t,.06);
+    const pace=state.pace||0,rolling=state.rollRemaining>0,tail=state.boosting;
+    this.air.gain.setTargetAtTime(running?(rolling?.3:state.thrusting?.24:(tail?.09:.03)+pace*.07):0,t,.035);
+    this.filter.frequency.setTargetAtTime(rolling?2600:state.thrusting?1700:tail?900+pace*850:520+pace*700,t,.06);
     // Urgent bursts from the brake-failure car that merge into one blast once it is right behind.
     const runaway=running&&(state.traffic||[]).find(c=>c.horn);
     const near=runaway?Math.max(.15,1-Math.abs(runaway.z)/140):0,on=runaway&&(runaway.z>-30||((state.clock||0)*2.4)%1<.62);

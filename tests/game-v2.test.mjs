@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {Game,SPEED,AIR_LANE} from '../dist/game.js';
 import {drive} from './pilot.mjs';
 function run(g,s,hz=120){for(let i=0;i<Math.round(s*hz);i++)g.update(1/hz);}
-function game(){const g=new Game({autoSpawn:false,trafficEnabled:false});g.start();return g;}
+function game(){const g=new Game({mode:'jet',autoSpawn:false,trafficEnabled:false});g.start();return g;}
 function seeded(seed){let n=seed;return ()=>((n=(n*1664525+1013904223)>>>0)/4294967296);}
 // A roadside breakdown only blocks an outer lane, so its tests start from the right-hand lane.
 function staged(kind,g=game()){if(kind==='parked'){g.moveLane(1);run(g,.5);}return g;}
@@ -56,7 +56,7 @@ test('every hazard gives its cue well before contact',()=>{
  }
 });
 test('ordinary cars merge in ahead with a turn signal and fair warning, and are not counted as hazards',()=>{
- const g=new Game({autoSpawn:false,random:()=>0});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
+ const g=new Game({mode:'jet',autoSpawn:false,random:()=>0});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
  const v=g.speed/3.6,speed=v*.7,near=g.addTraffic(1,20,speed),fair=g.addTraffic(1,20+(v-speed)*3.5,speed);
  g.update(1/120);g.random=()=>.99;
  assert.equal(near.signal,0,'too close to merge in ahead of the player');assert.equal(fair.signal,-1);
@@ -109,7 +109,7 @@ test('only an M9 already leading the player lane can become a live suspension fa
 });
 test('a roadside breakdown waits in the haze half on the road edge, and drivers in that lane go around it',()=>{
  for(let seed=1;seed<=5;seed++){
-  const g=new Game({autoSpawn:false,random:seeded(seed)});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
+  const g=new Game({mode:'jet',autoSpawn:false,random:seeded(seed)});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
   g.moveLane(1);run(g,.5);
   const e=g.park(1,-Infinity),car=g.traffic.find(c=>c.id===e.carId);
   assert.equal(car.model,'m9');assert.ok(car.z>=215&&car.speed===0&&car.triangle&&car.hazard&&!car.brake);assert.equal(car.x,5.3);assert.equal(car.broken,4,'the outer rear wheel has collapsed');
@@ -131,7 +131,7 @@ test('the player can land on a truck roof, ride it while regaining gas, and drop
  assert.ok(truck.deck&&truck.height===3.9);
 });
 test('SUVs are a minority on the road, and trucks join the traffic',()=>{
- const g=new Game({random:seeded(11)});g.start();g.time=60;g.update(1/120);const count={};
+ const g=new Game({mode:'jet',random:seeded(11)});g.start();g.time=60;g.update(1/120);const count={};
  for(let i=0;i<3000;i++){g.traffic=[];g.nextTraffic=0;g.spawnTraffic(g.speed/3.6);for(const c of g.traffic)count[c.model]=(count[c.model]||0)+1;}
  const total=Object.values(count).reduce((a,b)=>a+b,0);
  assert.ok(count.suv/total<.16,`SUV share ${(count.suv/total).toFixed(2)}`);assert.ok(count.suv<count.mpv&&count.suv<count.sedan);
@@ -143,7 +143,7 @@ test('a wreck ahead is an obstacle that ends the run',()=>{
 });
 test('drivers who see a wreck ahead brake and steer around it',()=>{
  for(let seed=1;seed<=5;seed++){
-  const g=new Game({autoSpawn:false,random:seeded(seed)});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
+  const g=new Game({mode:'jet',autoSpawn:false,random:seeded(seed)});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
   const v=g.speed/3.6;g.moveLane(-1);run(g,.5);
   const wreck=g.addTraffic(0,220,0),follower=g.addTraffic(0,40,v*.7);g.wreck(wreck,0);
   run(g,.3);assert.ok(follower.brake,'brake lights come on');
@@ -163,11 +163,12 @@ test('the player crash slides on before the result settles',()=>{
  assert.equal(g.distance,distance);assert.ok(g.travel>travel,'the wreck keeps sliding');assert.ok(g.speed<g.maxSpeed);
  run(g,1.2);assert.equal(g.settled,true);const rest=g.travel;run(g,1);assert.equal(g.travel,rest);
 });
-test('ordinary traffic exists and can collide during lane changes',()=>{const g=new Game({autoSpawn:false});g.start();assert.ok(g.traffic.length>=3);const h=game();h.addTraffic(1,0,120/3.6);h.moveLane(1);run(h,.4);assert.equal(h.phase,'over');});
-test('early danger and restart reset',()=>{const g=new Game();g.start();run(g,1.6);assert.ok(g.events.length);g.moveLane(1);g.setHeld(true);g.start();assert.equal(g.x,0);assert.equal(g.lane,0);assert.equal(g.gas,100);assert.equal(g.held,false);assert.equal(g.distance,0);assert.equal(g.traffic.every(c=>c.mode==='cruise'),true);});
+test('ordinary traffic exists and can collide during lane changes',()=>{const g=new Game({mode:'jet',autoSpawn:false});g.start();assert.ok(g.traffic.length>=3);const h=game();h.addTraffic(1,0,120/3.6);h.moveLane(1);run(h,.4);assert.equal(h.phase,'over');});
+test('early danger and restart reset',()=>{const g=new Game({mode:'jet'});g.start();run(g,1.6);assert.ok(g.events.length);g.moveLane(1);g.setHeld(true);g.start();assert.equal(g.x,0);assert.equal(g.lane,0);assert.equal(g.gas,100);assert.equal(g.held,false);assert.equal(g.distance,0);assert.equal(g.traffic.every(c=>c.mode==='cruise'),true);});
 test('live hazards come from traffic already on the road, and new cars only appear far ahead',()=>{
- const g=new Game({random:seeded(7)});g.start();const kinds=new Set(),opening=new Set(g.traffic.map(c=>c.id)),firstZ=new Map();
- for(let i=0;i<900&&g.phase==='running';i++){
+ const g=new Game({mode:'jet',random:seeded(7)});g.start();const kinds=new Set(),opening=new Set(g.traffic.map(c=>c.id)),firstZ=new Map();
+ // Body lengths change following and lane-choice timing; allow three minutes to exercise all five live hazards.
+ for(let i=0;i<1800&&g.phase==='running';i++){
   drive(g,.1);
   for(const c of g.traffic)if(!firstZ.has(c.id)){firstZ.set(c.id,c.z);if(!opening.has(c.id))assert.ok(c.z>200||(c.role==='rear'&&c.z<0),`car ${c.id} appeared at ${c.z.toFixed(0)} m`);}
   for(const e of g.events){kinds.add(e.kind);if(e.kind!=='rear')assert.ok(opening.has(e.carId)||firstZ.get(e.carId)>200,`${e.kind} used car ${e.carId}, first seen at ${firstZ.get(e.carId)?.toFixed(0)} m`);}
@@ -177,7 +178,7 @@ test('live hazards come from traffic already on the road, and new cars only appe
 test('attentive lane pilot survives varied high-speed traffic, and emergency braking is the most common hazard',()=>{
  const kinds={};
  for(let seed=1;seed<=12;seed++){
-  const g=new Game({random:seeded(seed)});g.start();g.time=200;const seen=new Set();
+  const g=new Game({mode:'jet',random:seeded(seed)});g.start();g.time=200;const seen=new Set();
   for(let s=0;s<180&&g.phase==='running';s++){drive(g,1);for(const e of g.events)if(e.stage!=='planned'&&!seen.has(e.id)){seen.add(e.id);kinds[e.kind]=(kinds[e.kind]||0)+1;}}
   assert.equal(g.phase,'running',`seed ${seed}, ${g.cause}`);assert.ok(g.dodged>20);
  }

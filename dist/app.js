@@ -1,25 +1,46 @@
-import {Game,HINTS,AIR_LANE} from './game.js';
-import {AudioEngine} from './audio.js';
+import {Game,HINTS,AIR_LANE,MODES} from './game.js';
+import {AudioEngine,BackgroundMusic} from './audio.js';
 
 const $=id=>document.getElementById(id);
-const game=new Game();
 const read=(key,fallback)=>{try{return localStorage.getItem(key)??fallback;}catch{return fallback;}};
 const write=(key,value)=>{try{localStorage.setItem(key,String(value));}catch{/* Storage can be disabled; gameplay is unaffected. */}};
-let best=Math.max(0,Number(read('roadster-best','0'))||0);
+const game=new Game({mode:read('roadster-mode','normal')});
+const bestValue=key=>{const n=Number(read(key,'0'));return Number.isFinite(n)?Math.max(0,n):0;};
+// Existing records were earned at jet-mode speed. Keep them out of the slower mode's record.
+const bestByMode={normal:bestValue('roadster-best-normal'),jet:Math.max(bestValue('roadster-best-jet'),bestValue('roadster-best'))};
 const audio=new AudioEngine(read('roadster-muted','0')==='1');
+const music=new BackgroundMusic($('bgm'),read('roadster-music','1')==='1');
 // Each hazard type is explained once, the first time the player meets it; after that only the road shows it.
 const seenHints=new Set(read('roadster-hints','').split(',').filter(Boolean));
 let scene, activePointer=null, lastWarning=0, hintUntil=0, lastTime=0, resumeTimer=null, countdownToken=0;
-let stage='ready', ended=false, swipe=null, laneNotice='', laneNoticeUntil=0;
+let stage='ready', ended=false, swipe=null, laneNotice='', laneNoticeUntil=0, backgrounded=false;
 const ui={distance:$('distance'),score:$('score'),speed:$('speed'),gas:$('gas-number'),fill:$('gas-fill'),meter:$('gas-meter'),gasNote:$('gas-note'),altitude:$('altitude'),hint:$('hint'),hintText:$('hint-text'),mirror:$('mirror-frame'),feedback:$('feedback'),flight:$('flight-state'),thrust:$('thrust')};
 
-function refreshBest(){ $('welcome-best').textContent=`最佳纪录 ${Math.floor(best).toLocaleString()} m`;$('best-hud').textContent=`最佳 ${Math.floor(best).toLocaleString()} m`;}
-function syncSound(){const b=$('sound');b.classList.toggle('muted',audio.muted);b.setAttribute('aria-label',audio.muted?'开启声音':'关闭声音');b.querySelector('span').textContent=audio.muted?'声音关闭':'声音开启';}
-function phase(value){stage=value;swipe=null;$('game-shell').dataset.phase=value;}
+function refreshBest(){
+  const best=bestByMode[game.mode],label=MODES[game.mode].label;
+  $('welcome-best').textContent=`本模式最佳 ${Math.floor(best).toLocaleString()} m`;$('best-hud').textContent=`最佳 ${Math.floor(best).toLocaleString()} m`;
+  $('mode-label').textContent=label;
+  $('mode-note').textContent=game.mode==='jet'?'四尾喷与尾翼自动开启 · 不消耗飞行气量':'节奏放缓 20% · 更从容地应对车流';
+  for(const button of document.querySelectorAll('[data-mode]'))button.setAttribute('aria-pressed',String(button.dataset.mode===game.mode));
+  if(!$('start').disabled)$('start').innerHTML=`开始${label} <span>↗</span>`;
+}
+function chooseMode(mode){
+  if(stage!=='ready'||!Object.hasOwn(MODES,mode))return;
+  game.start(mode);game.phase='ready';write('roadster-mode',game.mode);refreshBest();renderHud();
+}
+function syncSound(){const b=$('sound');b.classList.toggle('muted',audio.muted);b.setAttribute('aria-label',audio.muted?'开启音效':'关闭音效');b.querySelector('span').textContent=audio.muted?'音效关闭':'音效开启';}
+function syncMusic(){
+  music.setSuspended(backgrounded||document.hidden||stage==='paused'||stage==='countdown');
+  const b=$('music');b.classList.toggle('muted',!music.enabled);b.setAttribute('aria-checked',String(music.enabled));b.setAttribute('aria-label',music.enabled?'关闭背景音乐':'开启背景音乐');$('music-state').textContent=music.enabled?'背景音乐开启':'背景音乐关闭';
+  b.title=$('bgm').error?'音乐暂不可用 · 可继续游戏':music.enabled?'背景音乐：开启':'背景音乐：关闭';
+}
+function phase(value){stage=value;swipe=null;$('game-shell').dataset.phase=value;syncMusic();}
 function release(){activePointer=null;game.setHeld(false);ui.thrust.classList.remove('pressed');}
 function cancelCountdown(){countdownToken++;clearTimeout(resumeTimer);resumeTimer=null;$('countdown').hidden=true;}
 function start(){
   cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;hintUntil=0;laneNoticeUntil=0;
+  music.unlock();syncMusic();
+  refreshBest();
   $('welcome').hidden=true;$('result').hidden=true;$('pause-panel').hidden=true;lastTime=performance.now();
 }
 function pause(){
@@ -28,7 +49,7 @@ function pause(){
 }
 function resume(){
   if(game.phase!=='paused'||stage==='countdown')return;
-  audio.unlock();phase('countdown');$('pause-panel').hidden=true;
+  audio.unlock();phase('countdown');music.unlock();$('pause-panel').hidden=true;
   $('countdown').hidden=false;let n=3;const token=++countdownToken;
   const tick=()=>{
     if(token!==countdownToken)return;
@@ -38,7 +59,8 @@ function resume(){
 }
 function finish(){
   if(ended)return;ended=true;
-  const record=game.distance>best;best=Math.max(best,game.distance);write('roadster-best',best);refreshBest();
+  const record=game.distance>bestByMode[game.mode],best=bestByMode[game.mode]=Math.max(bestByMode[game.mode],game.distance);write(`roadster-best-${game.mode}`,best);refreshBest();
+  $('result-mode').textContent=MODES[game.mode].label;
   $('result-eyebrow').textContent=record?'NEW PERSONAL BEST':'RUN COMPLETE';
   $('result-title').textContent=record?'新的里程碑。':'下一次，更远。';
   $('result-distance').textContent=Math.floor(game.distance).toLocaleString();
@@ -73,9 +95,12 @@ function renderHud(){
 }
 
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);$('restart-paused').addEventListener('click',start);
+for(const button of document.querySelectorAll('[data-mode]'))button.addEventListener('click',()=>chooseMode(button.dataset.mode));
 $('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
 $('home').addEventListener('click',()=>{cancelCountdown();release();game.start();game.phase='ready';phase('ready');$('result').hidden=true;$('welcome').hidden=false;});
 $('sound').addEventListener('click',()=>{audio.unlock();audio.setMuted(!audio.muted);write('roadster-muted',audio.muted?'1':'0');syncSound();});
+$('music').addEventListener('click',()=>{music.setEnabled(!music.enabled);write('roadster-music',music.enabled?'1':'0');music.unlock();syncMusic();});
+$('bgm').addEventListener('error',syncMusic);
 ui.thrust.addEventListener('pointerdown',e=>{
   if(game.phase!=='running'||activePointer!==null||e.button!==0)return;
   e.preventDefault();activePointer=e.pointerId;ui.thrust.setPointerCapture(e.pointerId);game.setHeld(true);ui.thrust.classList.add('pressed');audio.unlock();
@@ -103,7 +128,8 @@ document.addEventListener('keydown',e=>{
   if(e.code==='Escape')pause();
 });
 document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();release();}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});window.addEventListener('blur',pause);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();syncMusic();});
+window.addEventListener('blur',()=>{backgrounded=true;pause();syncMusic();});window.addEventListener('focus',()=>{backgrounded=false;syncMusic();});
 document.addEventListener('contextmenu',e=>{if(e.target.closest('#game-shell'))e.preventDefault();});
 window.addEventListener('resize',()=>scene?.resize());
 $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();pause();$('error-text').textContent='图形画面已暂停，请重新加载继续。';$('error').hidden=false;});
@@ -116,10 +142,10 @@ function animate(now){
   if(game.phase==='over'&&game.settled)finish();
   scene.render(game,dt);requestAnimationFrame(animate);
 }
-refreshBest();syncSound();
+refreshBest();syncSound();syncMusic();
 try {
   const {createScene}=await import('./scene.js');scene=createScene($('world'));await scene.ready;scene.resize();
-  $('loading').hidden=true;$('start').disabled=false;$('start').innerHTML='开始挑战 <span>↗</span>';
+  $('loading').hidden=true;$('start').disabled=false;refreshBest();
   requestAnimationFrame(animate);
 } catch(error){
   console.error('Game initialization failed',error);$('loading').hidden=true;$('error').hidden=false;

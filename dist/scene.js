@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createRoadster, createMPV, createM9, createSedan, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
+import { createRoadster, createMPV, createM9, createSedan, createSU7, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
 import { AIR_LANE } from './game.js';
 
 const clamp = THREE.MathUtils.clamp;
@@ -84,6 +84,17 @@ export function createScene(canvas) {
     const core=new THREE.Mesh(new THREE.CylinderGeometry(.025,.13,1.2,10,1,true),jetCoreMat);core.position.y=-.62;burst.add(core);
     sideJets.push({burst,side});
   }
+  // Four rear cold-gas ports sit in one row below the taillight, as on the official Roadster.
+  const rearJets=new THREE.Group();rearJets.name='Roadster rear nozzles';rearJets.position.set(0,.31,2.34);rearJets.visible=false;player.add(rearJets);
+  const rearBursts=new THREE.Group();rearBursts.name='Roadster rear thrust';rearBursts.visible=false;rearJets.add(rearBursts);
+  const rearGasMat=new THREE.MeshBasicMaterial({color:'#e5f5ff',transparent:true,opacity:.25,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
+  const rearNozzleGeo=new THREE.TorusGeometry(.085,.022,6,14),rearShellGeo=new THREE.CylinderGeometry(.05,.23,1.9,12,1,true),rearCoreGeo=new THREE.CylinderGeometry(.025,.10,1.15,10,1,true);
+  for(const x of [-.57,-.19,.19,.57]) {
+    const nozzle=new THREE.Mesh(rearNozzleGeo,nozzleMat);nozzle.position.x=x;rearJets.add(nozzle);
+    const burst=new THREE.Group();burst.position.x=x;burst.rotation.x=-Math.PI/2;rearBursts.add(burst);
+    const shell=new THREE.Mesh(rearShellGeo,rearGasMat);shell.position.y=-.96;burst.add(shell);
+    const core=new THREE.Mesh(rearCoreGeo,jetCoreMat);core.position.y=-.59;burst.add(core);
+  }
   // Wind streaks ring the chase camera's sides and top, clear of the lanes below, and fade in with pace.
   const streakMat=new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0,depthWrite:false,toneMapped:false});
   const streaks=new THREE.InstancedMesh(new THREE.BoxGeometry(.035,.035,1),streakMat,64);
@@ -96,15 +107,16 @@ export function createScene(canvas) {
   // Sparks thrown up by wrecks while they are still sliding.
   const sparks=new THREE.InstancedMesh(new THREE.BoxGeometry(.05,.05,.24),new THREE.MeshBasicMaterial({color:'#ffc36e',toneMapped:false}),140);
   sparks.frustumCulled=false;sparks.count=0;scene.add(sparks);
-  const carViews=new Map(),carPools={sedan:[],suv:[],mpv:[],m9:[],truck:[],semi:[]},batteryViews=new Map(),batteryPool=[];
-  const wheelRadius={sedan:.32,suv:.405,mpv:.395,m9:.39,truck:.52,semi:.52};
-  const factories={sedan:()=>createSedan({color:'#c7c9c1'}),suv:createSUV,mpv:createMPV,m9:createM9,truck:createTruck,semi:createSemi};
+  const carViews=new Map(),carPools={sedan:[],su7:[],suv:[],mpv:[],m9:[],truck:[],semi:[]},batteryViews=new Map(),batteryPool=[];
+  const wheelRadius={sedan:.32,su7:.355,suv:.405,mpv:.395,m9:.39,truck:.52,semi:.52};
+  const factories={sedan:()=>createSedan({color:'#c7c9c1'}),su7:createSU7,suv:createSUV,mpv:createMPV,m9:createM9,truck:createTruck,semi:createSemi};
   // A soft red halo behind the outermost brake lamps keeps braking readable at a distance, where the lamps are a few pixels.
   const glowMat=new THREE.SpriteMaterial({map:makeGlowTexture(),color:'#ff2a1c',blending:THREE.AdditiveBlending,depthWrite:false,transparent:true});
   const lampPosition=new THREE.Vector3();
   let canvasRect=null,mirrorRect=null,mirrorElement=null,lastMirrorMeasure=0;
   let width=1,height=1;
   let visualRoll=0,lastRollRemaining=0,lastRollDirection=0;
+  let visualWingTime=0,lastWingTime=0;
   function resize() {
     canvasRect=canvas.getBoundingClientRect(); width=Math.max(1,canvasRect.width);height=Math.max(1,canvasRect.height);
     renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();
@@ -201,6 +213,14 @@ export function createScene(canvas) {
       const pulse=.94+Math.sin(time*47)*.06;jets.scale.y=Math.min(1.4,Math.max(.28,altitude*.72))*pulse;
       jetMat.opacity=.22+Math.sin(time*23)*.035;
     }
+    rearJets.visible=state.mode==='jet';rearBursts.visible=!!state.boosting;
+    rearBursts.scale.z=.65+pace*.5+Math.sin(time*17)*.02;
+    // Share the launch with rear thrust; simulation time freezes the wing on pause and impact.
+    const wingTime=state.time||0;
+    if(state.mode!=='jet'||state.phase==='ready'||wingTime<lastWingTime)visualWingTime=0;
+    else if(state.boosting)visualWingTime=Math.max(visualWingTime,wingTime+fraction);
+    lastWingTime=wingTime;
+    player.userData.setWing(smooth(clamp(visualWingTime/1.1,0,1)),state.mode==='jet');
     for(const view of carViews.values())view.seen=false;
     let sparkCount=0;
     for(const car of state.traffic||[]) {

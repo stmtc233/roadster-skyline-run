@@ -20,10 +20,11 @@
     </aside>
     <section id="game-shell" class="game-shell" aria-label="公路飞跃游戏" data-phase="ready">
       <canvas id="world" aria-label="白天高速公路三维游戏画面"></canvas>
+      <audio id="bgm" src="./audio/bgm.mp3" preload="metadata" loop></audio>
       <div class="scene-shade"></div>
       <div id="loading" class="loading"><span class="loader"></span><span>正在准备公路…</span></div>
       <div class="hud" id="hud">
-        <div class="hud-top"><div class="distance"><span class="hud-caption">行驶距离 <span class="live-dot"></span></span><div><strong id="distance">0</strong><span class="unit">m</span></div></div><div class="telemetry"><div><strong id="speed">140</strong><span>km/h</span></div><span>分数 <b id="score">0</b> · <span id="best-hud">最佳 0 m</span></span></div><button id="pause" class="icon-button" aria-label="暂停游戏"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div>
+        <div class="hud-top"><div class="distance"><span class="hud-caption"><span id="mode-label">普通模式</span> · 距离 <span class="live-dot"></span></span><div><strong id="distance">0</strong><span class="unit">m</span></div></div><div class="telemetry"><div><strong id="speed">112</strong><span>km/h</span></div><span>分数 <b id="score">0</b> · <span id="best-hud">最佳 0 m</span></span></div><button id="pause" class="icon-button" aria-label="暂停游戏"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div>
         <div class="mirror-mount"><div id="mirror-frame" class="mirror-frame"><div id="mirror-view" role="img" aria-label="车内后视镜"></div></div></div>
         <div id="hint" class="hint" role="status" aria-live="polite" hidden><span>新情况</span><b id="hint-text"></b></div>
         <div id="feedback" class="feedback" aria-live="polite"></div>
@@ -37,12 +38,20 @@
       </div>
       <div id="welcome" class="welcome overlay">
         <div class="welcome-heading"><div class="eyebrow"><span class="status-dot"></span> SWIPE. FLY. GO FURTHER.</div><div class="hero-word">ROADSTER<span>公路飞跃</span></div><p>越过意外，刷新你的极限。</p></div>
-        <div class="welcome-bottom"><div class="howto"><div><span class="step-icon">↔</span><b>滑动变道</b></div><span class="step-divider"></span><div><span class="step-icon">↑</span><b>按住起飞</b></div><span class="step-divider"></span><div><span class="step-icon">↓</span><b>落地攒气</b></div></div><button id="start" class="primary-button" disabled>准备中…<span>↗</span></button><div class="welcome-meta"><span id="welcome-best">最佳纪录 0 m</span><span>滑动变道 · 自动前进</span></div><p class="fiction-note">车型外观为风格化参考，危险事件为虚构游戏设定。</p></div>
+        <div class="welcome-bottom">
+          <div class="mode-select" role="group" aria-label="选择游戏模式">
+            <button id="mode-normal" class="mode-option" data-mode="normal" aria-pressed="true"><span><b>普通模式</b><i>01</i></span><small>112–320 km/h</small><em>从容应对车流</em></button>
+            <button id="mode-jet" class="mode-option" data-mode="jet" aria-pressed="false"><span><b>喷气模式</b><i>02 ↗</i></span><small>140–400 km/h</small><em>四尾喷 · 主动尾翼</em></button>
+          </div>
+          <p id="mode-note" class="mode-note">节奏放缓 20% · 更从容地应对车流</p>
+          <div class="howto"><div><span class="step-icon">↔</span><b>滑动变道</b></div><span class="step-divider"></span><div><span class="step-icon">↑</span><b>按住起飞</b></div><span class="step-divider"></span><div><span class="step-icon">↓</span><b>落地攒气</b></div></div><button id="start" class="primary-button" disabled>准备中…<span>↗</span></button><div class="welcome-meta"><span id="welcome-best">本模式最佳 0 m</span><span>滑动变道 · 自动前进</span></div><p class="fiction-note">车型外观为风格化参考，危险事件为虚构游戏设定。</p>
+        </div>
       </div>
       <div id="pause-panel" class="modal-backdrop" hidden><section class="dialog"><span class="eyebrow">TAKE A BREATH</span><h2>稍作停留</h2><p>公路在这里等你。<br>继续后将倒数 3 秒再出发。</p><button id="resume" class="primary-button">继续行驶 <span>→</span></button><button id="restart-paused" class="text-button">重新开始</button></section></div>
       <div id="countdown" class="countdown" hidden aria-live="assertive">3</div>
-      <div id="result" class="modal-backdrop" hidden><section class="dialog result-dialog"><span class="eyebrow" id="result-eyebrow">RUN COMPLETE</span><h2 id="result-title">下一次，更远。</h2><div class="result-distance"><strong id="result-distance">0</strong><span>m</span></div><p id="result-cause"></p><div class="result-stats"><div><span>本次分数</span><b id="result-score">0</b></div><div><span>最高时速</span><b><span id="result-speed">140</span><small> km/h</small></b></div><div><span>最佳距离</span><b id="result-best">0 m</b></div></div><button id="again" class="primary-button">再来一局 <span>↗</span></button><button id="home" class="text-button">返回起点</button></section></div>
-      <button id="sound" class="sound-button" aria-label="关闭声音" title="声音开关"><svg viewBox="0 0 24 24"><path d="m11 5-5 4H3v6h3l5 4zM15 8q5 4 0 8M18 5q8 7 0 14"/></svg><span>声音开启</span></button>
+      <div id="result" class="modal-backdrop" hidden><section class="dialog result-dialog"><span class="eyebrow" id="result-eyebrow">RUN COMPLETE</span><span id="result-mode" class="result-mode">普通模式</span><h2 id="result-title">下一次，更远。</h2><div class="result-distance"><strong id="result-distance">0</strong><span>m</span></div><p id="result-cause"></p><div class="result-stats"><div><span>本次分数</span><b id="result-score">0</b></div><div><span>最高时速</span><b><span id="result-speed">140</span><small> km/h</small></b></div><div><span>最佳距离</span><b id="result-best">0 m</b></div></div><button id="again" class="primary-button">再来一局 <span>↗</span></button><button id="home" class="text-button">返回起点</button></section></div>
+      <button id="sound" class="sound-button" aria-label="关闭音效" title="音效开关"><svg viewBox="0 0 24 24"><path d="m11 5-5 4H3v6h3l5 4zM15 8q5 4 0 8M18 5q8 7 0 14"/></svg><span>音效开启</span></button>
+      <button id="music" class="sound-button music-button" role="switch" aria-checked="true" aria-label="关闭背景音乐" title="背景音乐：开启"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V6l10-2v12M9 9l10-2"/><ellipse cx="6" cy="18" rx="3" ry="2"/><ellipse cx="16" cy="16" rx="3" ry="2"/><path class="music-slash" d="m4 4 16 16"/></svg><span id="music-state">背景音乐开启</span></button>
       <div id="error" class="modal-backdrop" hidden><section class="dialog"><h2>公路暂未就绪</h2><p id="error-text">请使用支持 WebGL 的新版浏览器，刷新后重试。</p><button onclick="location.reload()" class="primary-button">重新加载 <span>↻</span></button></section></div>
       <noscript><div class="no-script">请开启浏览器 JavaScript 后开始游戏。</div></noscript>
     </section>
