@@ -14,6 +14,10 @@ export class AudioEngine {
         this.noise=this.ctx.createBufferSource();this.noise.buffer=buffer;this.noise.loop=true;
         this.filter=this.ctx.createBiquadFilter();this.filter.type='lowpass';this.filter.frequency.value=850;
         this.air=this.ctx.createGain();this.air.gain.value=0;this.noise.connect(this.filter).connect(this.air).connect(this.master);this.noise.start();
+        // Two detuned reeds through a soft filter make the runaway car's horn.
+        this.horn=this.ctx.createGain();this.horn.gain.value=0;
+        const reed=this.ctx.createBiquadFilter();reed.type='lowpass';reed.frequency.value=1900;reed.connect(this.horn).connect(this.master);
+        for(const frequency of [415,523]){const o=this.ctx.createOscillator();o.type='sawtooth';o.frequency.value=frequency;o.connect(reed);o.start();}
       }
       await this.ctx.resume();
     } catch { /* Silent play stays available if browser audio is restricted. */ }
@@ -24,16 +28,36 @@ export class AudioEngine {
     const t=this.ctx.currentTime, running=state.phase==='running';
     this.motor.frequency.setTargetAtTime(50+state.speed*.45,t,.15);
     this.motorGain.gain.setTargetAtTime(running?.045:0,t,.08);
-    this.air.gain.setTargetAtTime(running?(state.thrusting?.24:.035):0,t,.05);
-    this.filter.frequency.setTargetAtTime(state.thrusting?1700:550,t,.1);
+    // Road wind swells and brightens with pace; thrust stays the loudest air sound.
+    const pace=state.pace||0;
+    this.air.gain.setTargetAtTime(running?(state.thrusting?.24:.03+pace*.07):0,t,.05);
+    this.filter.frequency.setTargetAtTime(state.thrusting?1700:520+pace*700,t,.1);
+    // Urgent bursts from the brake-failure car that merge into one blast once it is right behind.
+    const runaway=running&&(state.traffic||[]).find(c=>c.horn);
+    const near=runaway?Math.max(.15,1-Math.abs(runaway.z)/140):0,on=runaway&&(runaway.z>-30||((state.clock||0)*2.4)%1<.62);
+    this.horn.gain.setTargetAtTime(on?.12*near:0,t,.012);
   }
-  tone(frequency,duration,offset=0){
+  // One-shot road sounds from the simulation, quieter the farther away they happen.
+  cue({type,x=0,z=0}){
+    if(!this.ctx||!this.master||this.muted)return;
+    const near=Math.max(.12,1-Math.hypot(x,z)/200);
+    if(type==='screech')this.burst('bandpass',2600,.6,.22*near);
+    else if(type==='scrape'){this.tone(85,.3,0,.4*near);this.burst('bandpass',1500,1.8,.32*near);this.burst('bandpass',3400,1.2,.12*near);}
+    else if(type==='eject'){this.burst('lowpass',900,.25,.3*near);this.tone(150,.2,0,.25*near);}
+    else if(type==='crash'){this.burst('lowpass',1100,.55,.45*near);this.tone(70,.45,0,.35*near);}
+    else if(type==='impact'){this.burst('lowpass',1500,.9,.6);this.tone(60,.7,0,.45);this.tone(110,.5,.03,.3);}
+  }
+  burst(type,frequency,duration,level){
+    const t=this.ctx.currentTime,source=this.ctx.createBufferSource(),filter=this.ctx.createBiquadFilter(),g=this.ctx.createGain();
+    source.buffer=this.noise.buffer;filter.type=type;filter.frequency.value=frequency;filter.Q.value=type==='bandpass'?6:.7;
+    g.gain.setValueAtTime(level,t);g.gain.exponentialRampToValueAtTime(.001,t+duration);
+    source.connect(filter).connect(g).connect(this.master);source.start(t,Math.random()*1.5);source.stop(t+duration+.05);
+    source.onended=()=>{source.disconnect();filter.disconnect();g.disconnect();};
+  }
+  tone(frequency,duration,offset=0,level=.3){
     if(!this.ctx||!this.master||this.muted)return;
     const t=this.ctx.currentTime+offset,o=this.ctx.createOscillator(),g=this.ctx.createGain();
-    o.type='sine';o.frequency.value=frequency;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.3,t+.015);g.gain.exponentialRampToValueAtTime(.001,t+duration);
+    o.type='sine';o.frequency.value=frequency;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(level,t+.015);g.gain.exponentialRampToValueAtTime(.001,t+duration);
     o.connect(g).connect(this.master);o.start(t);o.stop(t+duration+.02);o.onended=()=>{o.disconnect();g.disconnect();};
   }
-  warn(){this.tone(760,.14);this.tone(940,.18,.18);}
-  clear(){this.tone(620,.12);this.tone(930,.16,.1);}
-  crash(){this.tone(110,.5);this.tone(60,.6,.04);}
 }

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createRoadster, createMPV, createSedan, createSUV, createBattery } from './models.js';
+import { createRoadster, createMPV, createSedan, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
 
 const clamp = THREE.MathUtils.clamp;
 export function createScene(canvas) {
@@ -21,7 +21,7 @@ export function createScene(canvas) {
   const pmrem=new THREE.PMREMGenerator(renderer);scene.environment=pmrem.fromEquirectangular(skyTexture).texture;
   skyTexture.dispose();pmrem.dispose();
   const camera=new THREE.PerspectiveCamera(59,1,.1,650);
-  const rearCamera=new THREE.PerspectiveCamera(63,3,.15,220);
+  const rearCamera=new THREE.PerspectiveCamera(21,3.5,.15,240);
   const hemi=new THREE.HemisphereLight('#e3f2ff','#b3a283',2.8); scene.add(hemi);
   const sun=new THREE.DirectionalLight('#fff1d6',3.3); sun.position.set(-30,45,-25); scene.add(sun);
   sun.castShadow=true; sun.shadow.mapSize.set(1024,1024);
@@ -63,8 +63,24 @@ export function createScene(canvas) {
     const nozzle=new THREE.Mesh(new THREE.TorusGeometry(.055,.018,5,10),new THREE.MeshStandardMaterial({color:'#a8d7dd',metalness:.8,roughness:.3}));
     nozzle.rotation.x=Math.PI/2;jet.add(nozzle);
   }
-  const eventViews=new Map(), pools={front:[],rear:[],battery:[]};
-  const trafficViews=new Map(),trafficPool=[];
+  // Wind streaks ring the chase camera's sides and top, clear of the lanes below, and fade in with pace.
+  const streakMat=new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0,depthWrite:false,toneMapped:false});
+  const streaks=new THREE.InstancedMesh(new THREE.BoxGeometry(.035,.035,1),streakMat,64);
+  streaks.frustumCulled=false;streaks.visible=false;scene.add(streaks);
+  const streakSeeds=[];
+  for(let i=0;i<64;i++) {
+    const angle=THREE.MathUtils.degToRad(-25+(Math.sin(i*7.3)*.5+.5)*95),radius=3.6+(Math.sin(i*3.1)*.5+.5)*6.5,side=i%2?-1:1;
+    streakSeeds.push({dx:side*Math.cos(angle)*radius,dy:Math.sin(angle)*radius,z:i*41.7});
+  }
+  // Sparks thrown up by wrecks while they are still sliding.
+  const sparks=new THREE.InstancedMesh(new THREE.BoxGeometry(.05,.05,.24),new THREE.MeshBasicMaterial({color:'#ffc36e',toneMapped:false}),140);
+  sparks.frustumCulled=false;sparks.count=0;scene.add(sparks);
+  const carViews=new Map(),carPools={sedan:[],suv:[],mpv:[],truck:[],semi:[]},batteryViews=new Map(),batteryPool=[];
+  const wheelRadius={sedan:.32,suv:.405,mpv:.395,truck:.52,semi:.52};
+  const factories={sedan:()=>createSedan({color:'#c7c9c1'}),suv:createSUV,mpv:createMPV,truck:createTruck,semi:createSemi};
+  // A soft red halo behind the outermost brake lamps keeps braking readable at a distance, where the lamps are a few pixels.
+  const glowMat=new THREE.SpriteMaterial({map:makeGlowTexture(),color:'#ff2a1c',blending:THREE.AdditiveBlending,depthWrite:false,transparent:true});
+  const lampPosition=new THREE.Vector3();
   let canvasRect=null,mirrorRect=null,mirrorElement=null,lastMirrorMeasure=0;
   let width=1,height=1;
   function resize() {
@@ -72,27 +88,41 @@ export function createScene(canvas) {
     renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();
     mirrorElement=document.getElementById('mirror-view');mirrorRect=mirrorElement?.getBoundingClientRect()||null;
   }
-  function createEventView(kind) {
-    const root=new THREE.Group(); scene.add(root);
-    const vehicle=kind==='front'?createSedan({braking:true}):kind==='rear'?createMPV():createBattery();root.add(vehicle);
-    const shadow=makeShadow(shadowTexture,kind==='battery'?2.1:2.6,kind==='rear'?5.8:kind==='battery'?2.1:4.8);root.add(shadow);
-    let source=null,sourceShadow=null,warning=null;
-    if(kind==='battery') {
-      source=createSUV();root.add(source);sourceShadow=makeShadow(shadowTexture,2.6,4.8);root.add(sourceShadow);
-      warning=new THREE.Group();root.add(warning);
-      const sparkMat=new THREE.MeshBasicMaterial({color:'#ffdd89',transparent:true,opacity:.8,depthWrite:false});
-      for(let i=0;i<7;i++) {
-        const spark=new THREE.Mesh(new THREE.SphereGeometry(.045,5,3),sparkMat);
-        spark.position.set(Math.sin(i*2.4)*.6,.15+(i%3)*.12,Math.cos(i*2.4)*.55);warning.add(spark);
-      }
+  function createCarView(car) {
+    const root=new THREE.Group(),vehicle=factories[car.model]();
+    const shadow=makeShadow(shadowTexture,car.width+.6,car.length+.35);root.add(vehicle,shadow);scene.add(root);
+    vehicle.updateMatrixWorld(true);let left=null,right=null;
+    for(const lamp of vehicle.userData.brakeLights||[]) {
+      lamp.getWorldPosition(lampPosition);
+      if(!left||lampPosition.x<left.x)left=lampPosition.clone();if(!right||lampPosition.x>right.x)right=lampPosition.clone();
     }
-    return {root,vehicle,shadow,source,sourceShadow,warning,seen:false,kind};
+    const glows=[];
+    for(const at of left?[left,right]:[]){const glow=new THREE.Sprite(glowMat);glow.position.set(at.x,at.y,at.z+.12);glow.visible=false;vehicle.add(glow);glows.push(glow);}
+    // Only MPVs break down; theirs carries a warning triangle placed well behind it on the road.
+    let triangle=null;if(car.model==='mpv'){triangle=createTriangle();triangle.position.z=32;root.add(triangle);}
+    return {root,vehicle,shadow,triangle,glows,model:car.model,paint:'',pitch:0,broken:false,seen:false};
+  }
+  function createBatteryView() {
+    const root=new THREE.Group(),vehicle=createBattery(),shadow=makeShadow(shadowTexture,2.1,2.1);root.add(vehicle,shadow);scene.add(root);
+    return {root,vehicle,shadow,seen:false};
+  }
+  // Brake lights, turn signals, hazard lights and the runaway's flashing headlights all come from simulation flags.
+  function lights(view,car,time) {
+    const vehicle=view.vehicle,blink=Math.floor(time*3.2)%2===0,strobe=car.flash&&Math.floor(time*8)%2===1,lit=car.brake&&!strobe;
+    // Emergency braking strobes the brake lights about four times a second, with a much larger halo.
+    for(const lamp of vehicle.userData.brakeLights||[])lamp.material.emissiveIntensity=lit?3.6:lamp.material.userData.base??.35;
+    for(const glow of view.glows){glow.visible=lit;glow.scale.setScalar(car.flash?1.5:.7);}
+    for(const lamp of vehicle.userData.hazardLights||[]) {
+      const on=blink&&(car.hazard||car.signal===Math.sign(lamp.position.x));
+      if(lamp.userData.on!==on){lamp.userData.on=on;lamp.material.emissiveIntensity=on?5:0;lamp.material.color.set(on?'#ffb22c':'#553b21');}
+    }
+    const head=vehicle.userData.headLight;if(head)head.emissiveIntensity=car.horn&&Math.floor(time*7)%2===0?7:2.2;
   }
   function spin(vehicle,angle) { const wheels=vehicle.userData.wheels;if(wheels)for(const w of wheels)w.rotation.x=angle; }
   function render(state,dt) {
     if(!canvasRect)resize();
-    const time=state.time||0,travel=state.distance||0,altitude=Math.max(0,state.altitude||0);
-    const speed=state.speed||0;
+    const time=state.clock??state.time??0,travel=state.travel??state.distance??0,altitude=Math.max(0,state.altitude||0);
+    const pace=state.pace||0;
     const dashOffset=((travel%12)+12)%12;
     for(let i=0;i<132;i++) {
       transform.position.set(i%2===0?-2:2,.007,32-Math.floor(i/2)*12+dashOffset);
@@ -112,57 +142,83 @@ export function createScene(canvas) {
     trees.trunks.instanceMatrix.needsUpdate=trees.crowns.instanceMatrix.needsUpdate=trees.branches.instanceMatrix.needsUpdate=true;
     transform.scale.set(1,1,1);
     for(let i=0;i<markers.length;i++) markers[i].position.z=30-(((i*103-travel)%520+520)%520);
-    if(roadMat.map)roadMat.map.offset.y=(travel/700)%1;
+    // One texture repeat spans 700/repeat.y metres of road, so the asphalt grain moves at true road speed.
+    if(roadMat.map)roadMat.map.offset.y=(travel*roadMat.map.repeat.y/700)%1;
     const px=state.x||0;
     player.position.set(px,altitude,0);
     // The simulation supplies the sole vertical position. Only small pitch changes express thrust.
     player.rotation.x=state.thrusting?-.025:0;
-    player.rotation.y=-((state.lane||0)*4-px)*.025;
+    player.rotation.y=-((state.lane||0)*4-px)*.025+(state.yaw||0);
     player.rotation.z=-((state.lane||0)*4-px)*.018;
     spin(player,-travel/.32);
-    playerShadow.position.set(px,.025,0);playerShadow.material.opacity=.35/(1+altitude*.22);
-    playerShadow.scale.set(1+altitude*.055,1+altitude*.055,1);
+    // On a truck roof the shadow falls on the roof.
+    const floor=state.floor||0,clearance=Math.max(0,altitude-floor);
+    playerShadow.position.set(px,floor+.025,0);playerShadow.material.opacity=.35/(1+clearance*.22);
+    playerShadow.scale.set(1+clearance*.055,1+clearance*.055,1);
     jets.visible=!!state.thrusting;
     if(jets.visible) {
       const pulse=.94+Math.sin(time*47)*.06;jets.scale.y=Math.min(1.4,Math.max(.28,altitude*.72))*pulse;
       jetMat.opacity=.22+Math.sin(time*23)*.035;
     }
-    for(const view of eventViews.values())view.seen=false;
-    for(const event of state.events||[]) {
-      let view=eventViews.get(event.id);
-      if(!view) {view=pools[event.kind]?.pop()||createEventView(event.kind);view.root.visible=true;eventViews.set(event.id,view);}
+    for(const view of carViews.values())view.seen=false;
+    let sparkCount=0;
+    for(const car of state.traffic||[]) {
+      let view=carViews.get(car.id);
+      if(!view){view=carPools[car.model]?.pop()||createCarView(car);view.root.visible=true;view.pitch=0;carViews.set(car.id,view);}
       view.seen=true;
-      const x=event.x||0,z=-(event.z||0);
-      view.vehicle.position.set(x,0,z);view.vehicle.rotation.set(0,0,0);
-      view.shadow.position.set(x,.027,z);view.shadow.material.opacity=.3;
-      view.vehicle.visible=true;
-      spin(view.vehicle,-travel/(event.kind==='rear'?.36:.32));
-      if(event.kind==='battery') {
-        view.vehicle.visible=event.batteryVisible;
-        const sx=Number.isFinite(event.sourceX)?event.sourceX:4;
-        const sz=-Number(event.sourceZ??event.z??0);
-        view.source.position.set(sx,0,sz);view.source.rotation.set(0,0,0);spin(view.source,-(event.wheelTravel||0)/.37);
-        for(const lamp of view.source.userData.hazardLights||[]) {lamp.material.emissiveIntensity=event.hazardOn?5:0;lamp.material.color.set(event.hazardOn?'#ffb22c':'#553b21');}
-        view.sourceShadow.position.set(sx,.026,sz);
-        view.warning.position.set(sx,.15,sz+1.4);
-        view.warning.visible=event.stage==='hazards'&&!event.resolved;
-        view.warning.rotation.y=time*2;
-        view.warning.scale.setScalar(.65+(Math.sin(time*31)+1)*.2);
-        view.shadow.visible=view.vehicle.visible;
+      if(view.paint!==car.color&&view.vehicle.userData.paint){view.vehicle.userData.paint.color.set(car.color);view.paint=car.color;}
+      // Crash spin plus a slight steer into lane changes.
+      const yaw=(car.yaw||0)-(car.vx||0)*.045;
+      view.root.position.set(car.x,0,-car.z);view.vehicle.rotation.y=yaw;view.shadow.rotation.z=yaw;
+      // Hard braking dips the nose; the rear rises while the front wheels stay planted.
+      const pitch=car.mode==='crashed'||car.broken?0:car.flash?-.022:car.brake&&car.speed>0?-.008:0;
+      view.pitch+=(pitch-view.pitch)*Math.min(1,dt*10);view.vehicle.rotation.x=view.pitch;view.vehicle.position.y=-view.pitch*car.length*.5;
+      spin(view.vehicle,-(car.odo||0)/wheelRadius[view.model]);lights(view,car,time);
+      const setBroken=view.vehicle.userData.setBroken;
+      if(setBroken&&(car.broken||view.broken)) {
+        // The collapsed corner drops over a quarter second; the dragged wheel no longer turns.
+        setBroken(Math.max(0,car.broken-1),car.broken?clamp((time-car.brokenAt)/.3,0,1):0);view.broken=!!car.broken;
+        if(car.broken)view.vehicle.userData.wheels[car.broken-1].rotation.x=0;
+      }
+      if(view.triangle)view.triangle.visible=!!car.triangle;
+      if(car.mode==='crashed'&&car.speed>1.5)for(let k=0;k<8&&sparkCount<sparks.instanceMatrix.count;k++) {
+        const seed=car.id*7.31+k*3.7,flicker=Math.sin(time*97+seed);
+        transform.position.set(car.x+Math.sin(seed*2.1+time*40)*car.width*.5,.08+Math.abs(Math.sin(time*61+seed))*.35,-car.z+(k%2?1:-1)*car.length*.45+flicker*.6);
+        transform.scale.setScalar(.6+Math.abs(flicker));transform.updateMatrix();sparks.setMatrixAt(sparkCount++,transform.matrix);
+      }
+      // A dragged corner throws a tail of sparks back along the road.
+      if(car.mode==='broken'&&car.speed>.5) {
+        const side=car.broken%2===0?1:-1,corner=car.broken<=2?-1.77:1.68;
+        for(let k=0;k<20&&sparkCount<sparks.instanceMatrix.count;k++) {
+          const seed=car.id*5.17+k*2.3,flicker=Math.sin(time*89+seed),reach=Math.min(6,car.speed*.3),trail=((k*.37+time*9)%1)*reach;
+          transform.position.set(car.x+side*(.95+Math.abs(Math.sin(seed+time*31))*.35),.05+Math.abs(Math.sin(time*53+seed))*.55*(1-trail/6),-car.z+corner+.4+trail);
+          transform.scale.setScalar(1.1+Math.abs(flicker)*1.2);transform.updateMatrix();sparks.setMatrixAt(sparkCount++,transform.matrix);
+        }
       }
     }
-    for(const [id,view] of eventViews)if(!view.seen){view.root.visible=false;eventViews.delete(id);pools[view.kind].push(view);}
-    for(const view of trafficViews.values())view.seen=false;
-    for(const car of state.traffic||[]) {
-      let view=trafficViews.get(car.id);
-      if(!view){const root=new THREE.Group(),vehicle=trafficPool.pop()||createSedan({color:car.color,braking:false}),shadow=makeShadow(shadowTexture,2.5,4.8);root.add(vehicle,shadow);scene.add(root);view={root,vehicle,shadow,seen:true};trafficViews.set(car.id,view);}
-      view.seen=true;view.vehicle.position.set(car.x,0,-car.z);spin(view.vehicle,-travel/.32);view.shadow.position.set(car.x,.027,-car.z);
+    for(const [id,view] of carViews)if(!view.seen){view.root.visible=false;carViews.delete(id);carPools[view.model].push(view);}
+    for(const view of batteryViews.values())view.seen=false;
+    for(const battery of state.batteries||[]) {
+      let view=batteryViews.get(battery.id);
+      if(!view){view=batteryPool.pop()||createBatteryView();view.root.visible=true;batteryViews.set(battery.id,view);}
+      view.seen=true;const lift=battery.lift||0;
+      view.root.position.set(battery.x,0,-battery.z);view.vehicle.position.y=lift;view.vehicle.rotation.x=lift*.7;
+      view.shadow.material.opacity=.3/(1+lift*3);
     }
-    for(const [id,view] of trafficViews)if(!view.seen){scene.remove(view.root);view.root.remove(view.vehicle);trafficPool.push(view.vehicle);view.shadow.geometry.dispose();view.shadow.material.dispose();trafficViews.delete(id);}
+    for(const [id,view] of batteryViews)if(!view.seen){view.root.visible=false;batteryViews.delete(id);batteryPool.push(view);}
+    if(state.phase==='over'&&(state.speed||0)>5)for(let k=0;k<10&&sparkCount<sparks.instanceMatrix.count;k++) {
+      const flicker=Math.sin(time*89+k*4.1);
+      transform.position.set(px+Math.sin(k*2.7+time*37)*.9,.08+Math.abs(Math.sin(time*57+k))*.4,(k%2?-1:1)*2.2+flicker*.5);
+      transform.scale.setScalar(.6+Math.abs(flicker));transform.updateMatrix();sparks.setMatrixAt(sparkCount++,transform.matrix);
+    }
+    transform.scale.set(1,1,1);sparks.count=sparkCount;sparks.instanceMatrix.needsUpdate=true;
     const rise=altitude;
-    camera.position.set(.55+px*.5,5.7+rise*.66,12.5+rise*.14);
-    // A slight speed-dependent field of view conveys pace without changing obstacle geometry.
-    const fov=61+clamp((speed-120)/160,0,1)*5;
+    // As pace builds, the lens widens while the chase camera drops and closes in, with a faint road buzz.
+    // Obstacle geometry is unchanged; only the view of it shifts.
+    // An impact adds a sharp jolt that dies away while the wreck slides.
+    const shake=pace*pace*.045+(state.phase==='over'?.3*Math.exp(-(state.crashTime||0)*3.5):0);
+    camera.position.set(.55+px*.5+Math.sin(time*43)*shake*.5,5.7-pace*.55+rise*.66+Math.sin(time*61+1.7)*shake,12.5-pace*1.5+rise*.14);
+    const fov=60+pace*15;
     if(Math.abs(camera.fov-fov)>.05){camera.fov=fov;camera.updateProjectionMatrix();}
     const aimY=1.05+rise*.60,normalAim=state.phase==='ready'?-6:-13.5;
     const compact=clamp((844-height)/144,0,1);
@@ -177,17 +233,33 @@ export function createScene(canvas) {
       aimZ=THREE.MathUtils.lerp(normalAim,compactAim,compact);
     }
     camera.lookAt(px*.65,aimY,aimZ);
+    streakMat.opacity=Math.pow(pace,1.5)*.5;streaks.visible=streakMat.opacity>.01;
+    if(streaks.visible) {
+      // Each streak drains into a plane ahead of the camera before wrapping, so none pops in view.
+      const length=2+pace*9;
+      for(let i=0;i<streakSeeds.length;i++) {
+        const seed=streakSeeds[i],head=15-(((seed.z-travel)%130+130)%130),near=Math.min(head,4),visible=Math.max(.001,near-head+length);
+        transform.position.set(camera.position.x+seed.dx,camera.position.y+seed.dy,near-visible/2);transform.scale.set(1,1,visible);
+        transform.updateMatrix();streaks.setMatrixAt(i,transform.matrix);
+      }
+      transform.scale.set(1,1,1);streaks.instanceMatrix.needsUpdate=true;
+    }
     renderer.setScissorTest(false);renderer.setViewport(0,0,width,height);renderer.clear();renderer.render(scene,camera);
-    if(!mirrorElement||time-lastMirrorMeasure>.6||time<lastMirrorMeasure) {
+    // Re-measured now and then, and every frame while the mirror is still hidden behind the start screen.
+    if(!mirrorElement||!(mirrorRect?.width>5)||time-lastMirrorMeasure>.6||time<lastMirrorMeasure) {
       mirrorElement=document.getElementById('mirror-view');mirrorRect=mirrorElement?.getBoundingClientRect()||null;lastMirrorMeasure=time;
     }
     if(mirrorRect&&mirrorRect.width>5&&mirrorRect.height>5) {
       const vx=mirrorRect.left-canvasRect.left,vy=height-(mirrorRect.bottom-canvasRect.top),vw=mirrorRect.width,vh=mirrorRect.height;
-      rearCamera.position.set(px,1.8+rise*.24,-1.8);rearCamera.lookAt(px*.5,1.2,85);
+      // A real mirror flips left and right. Mirroring the whole world keeps three.js face culling and lighting correct,
+      // so the backward camera sits at the mirrored driver position.
+      rearCamera.position.set(-px,1.45+rise*.85,-.4);rearCamera.lookAt(-px*.6,.95+rise*.45,60);
       const aspect=vw/vh;if(Math.abs(rearCamera.aspect-aspect)>.01){rearCamera.aspect=aspect;rearCamera.updateProjectionMatrix();}
       renderer.setScissorTest(true);renderer.setViewport(vx,vy,vw,vh);renderer.setScissor(vx,vy,vw,vh);
-      renderer.clear(true,true,true);const wasVisible=player.visible;player.visible=false;
-      renderer.render(scene,rearCamera);player.visible=wasVisible;renderer.setScissorTest(false);
+      renderer.clear(true,true,true);const wasVisible=player.visible,streaksVisible=streaks.visible;
+      player.visible=playerShadow.visible=streaks.visible=false;scene.scale.x=-1;
+      renderer.render(scene,rearCamera);
+      scene.scale.x=1;player.visible=wasVisible;playerShadow.visible=true;streaks.visible=streaksVisible;renderer.setScissorTest(false);
       renderer.setViewport(0,0,width,height);
     }
   }
@@ -196,9 +268,23 @@ export function createScene(canvas) {
 
 function asphaltTexture() {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
-  const ctx=canvas.getContext('2d'),data=ctx.createImageData(128,128);
-  let seed=1397;for(let i=0;i<data.data.length;i+=4){seed=(seed*1664525+1013904223)>>>0;const c=174+(seed%35);data.data[i]=c;data.data[i+1]=c+2;data.data[i+2]=c+1;data.data[i+3]=255;}
-  ctx.putImageData(data,0,0);const tex=new THREE.CanvasTexture(canvas);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(5,170);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+  const ctx=canvas.getContext('2d'),data=ctx.createImageData(128,128),noise=new Float32Array(128*128);
+  let seed=1397;const next=()=>(seed=(seed*1664525+1013904223)>>>0)%35;
+  for(let i=0;i<noise.length;i++)noise[i]=next();
+  // Grain is smoothed along the road (canvas rows map to the road's length) so it streaks past at speed.
+  for(let x=0;x<128;x++) {
+    const groove=next()*.3-5;
+    for(let y=0;y<128;y++) {
+      let sum=0;for(let k=-5;k<=5;k++)sum+=noise[((y+k+128)%128)*128+x];
+      const c=Math.round(clamp(191+groove+(sum/11-17)*3,170,212)),i=(y*128+x)*4;data.data[i]=c;data.data[i+1]=c+2;data.data[i+2]=c+1;data.data[i+3]=255;
+    }
+  }
+  ctx.putImageData(data,0,0);const tex=new THREE.CanvasTexture(canvas);tex.wrapS=tex.wrapT=THREE.RepeatWrapping;tex.repeat.set(5,40);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+}
+function makeGlowTexture() {
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=64;const ctx=canvas.getContext('2d');
+  const grad=ctx.createRadialGradient(32,32,0,32,32,32);grad.addColorStop(0,'rgba(255,255,255,1)');grad.addColorStop(.25,'rgba(255,255,255,.55)');grad.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,64,64);return new THREE.CanvasTexture(canvas);
 }
 function makeShadowTexture() {
   const canvas=document.createElement('canvas');canvas.width=canvas.height=64;const ctx=canvas.getContext('2d');
