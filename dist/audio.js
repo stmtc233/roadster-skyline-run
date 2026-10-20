@@ -1,11 +1,47 @@
 // Music uses its own media element, so the effects master never mutes it.
 export class BackgroundMusic {
-  constructor(element,enabled=true){this.element=element;this.enabled=enabled;this.unlocked=false;this.suspended=false;element.loop=true;element.volume=.45;}
-  unlock(){this.unlocked=true;this.sync();}
+  constructor(element,enabled=true){
+    this.element=element;this.enabled=enabled;this.unlocked=false;this.suspended=false;
+    this.volume=.2;this.ctx=null;this.gain=null;this.restart=false;
+    element.loop=true;element.volume=this.volume;
+  }
+  unlock(){
+    this.unlocked=true;
+    if(this.enabled&&!this.suspended)this.prepare();
+    // A separate gain keeps music volume independent of effects on mobile too.
+    if(this.enabled&&!this.ctx){
+      let ctx;
+      try{
+        const Ctx=window.AudioContext||window.webkitAudioContext;
+        if(Ctx){
+          ctx=new Ctx();const gain=ctx.createGain();gain.gain.value=this.volume;
+          ctx.createMediaElementSource(this.element).connect(gain).connect(ctx.destination);
+          this.ctx=ctx;this.gain=gain;this.element.volume=1;
+        }
+      }catch{ctx?.close().catch(()=>{});}
+    }
+    this.sync();
+  }
   setEnabled(value){this.enabled=value;this.sync();}
-  setSuspended(value){this.suspended=value;this.sync();}
+  setStage(stage,{suspended=false,restart=false}={}){
+    this.suspended=suspended||stage==='paused'||stage==='countdown'||stage==='over';
+    this.volume=stage==='ready'?.2:stage==='result'?.1:.45;
+    this.restart=this.restart||restart;
+    if(this.gain)this.gain.gain.value=this.volume;else this.element.volume=this.volume;
+    this.sync();
+  }
+  prepare(){
+    // Defer seeking so disabled music never downloads.
+    if(this.restart){
+      this.element.pause();
+      try{this.element.currentTime=0;}catch{/* An unloaded track already starts at zero. */}
+    }
+    this.restart=false;
+  }
   sync(){
     if(!this.enabled||!this.unlocked||this.suspended){this.element.pause();return;}
+    this.prepare();
+    if(this.ctx&&this.ctx.state!=='running')this.ctx.resume().catch(()=>{});
     if(!this.element.paused)return;
     try{const play=this.element.play();play?.catch(()=>{});}catch{/* Music must never block gameplay. */}
   }

@@ -29,16 +29,16 @@ function chooseMode(mode){
   game.start(mode);game.phase='ready';write('roadster-mode',game.mode);refreshBest();renderHud();
 }
 function syncSound(){const b=$('sound');b.classList.toggle('muted',audio.muted);b.setAttribute('aria-label',audio.muted?'开启音效':'关闭音效');b.querySelector('span').textContent=audio.muted?'音效关闭':'音效开启';}
-function syncMusic(){
-  music.setSuspended(backgrounded||document.hidden||stage==='paused'||stage==='countdown');
+function syncMusic(restart=false){
+  music.setStage(stage,{suspended:backgrounded||document.hidden,restart});
   const b=$('music');b.classList.toggle('muted',!music.enabled);b.setAttribute('aria-checked',String(music.enabled));b.setAttribute('aria-label',music.enabled?'关闭背景音乐':'开启背景音乐');$('music-state').textContent=music.enabled?'背景音乐开启':'背景音乐关闭';
   b.title=$('bgm').error?'音乐暂不可用 · 可继续游戏':music.enabled?'背景音乐：开启':'背景音乐：关闭';
 }
-function phase(value){stage=value;swipe=null;$('game-shell').dataset.phase=value;syncMusic();}
+function phase(value,restart=false){stage=value;swipe=null;$('game-shell').dataset.phase=value;syncMusic(restart);}
 function release(){activePointer=null;game.setHeld(false);ui.thrust.classList.remove('pressed');}
 function cancelCountdown(){countdownToken++;clearTimeout(resumeTimer);resumeTimer=null;$('countdown').hidden=true;}
 function start(){
-  cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;hintUntil=0;laneNoticeUntil=0;
+  cancelCountdown();audio.unlock();release();game.start();phase('running',true);ended=false;lastWarning=0;hintUntil=0;laneNoticeUntil=0;
   music.unlock();syncMusic();
   refreshBest();
   $('welcome').hidden=true;$('result').hidden=true;$('pause-panel').hidden=true;lastTime=performance.now();
@@ -66,7 +66,7 @@ function finish(){
   $('result-distance').textContent=Math.floor(game.distance).toLocaleString();
   $('result-cause').textContent=game.cause;$('result-score').textContent=game.score.toLocaleString();
   $('result-speed').textContent=Math.round(game.maxSpeed);$('result-best').textContent=`${Math.floor(best).toLocaleString()} m`;
-  $('result').hidden=false;
+  $('result').hidden=false;phase('result');
 }
 // Each hint is shown once, the first time the player meets that situation.
 function hint(kind,text){if(seenHints.has(kind))return;seenHints.add(kind);write('roadster-hints',[...seenHints].join(','));ui.hintText.textContent=text;hintUntil=game.clock+3.2;}
@@ -95,12 +95,13 @@ function renderHud(){
 }
 
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);$('restart-paused').addEventListener('click',start);
+$('welcome').addEventListener('click',e=>{if(stage==='ready'&&!e.target.closest('a'))music.unlock();});
 for(const button of document.querySelectorAll('[data-mode]'))button.addEventListener('click',()=>chooseMode(button.dataset.mode));
 $('pause').addEventListener('click',pause);$('resume').addEventListener('click',resume);
-$('home').addEventListener('click',()=>{cancelCountdown();release();game.start();game.phase='ready';phase('ready');$('result').hidden=true;$('welcome').hidden=false;});
+$('home').addEventListener('click',()=>{cancelCountdown();release();game.start();game.phase='ready';phase('ready',true);$('result').hidden=true;$('welcome').hidden=false;});
 $('sound').addEventListener('click',()=>{audio.unlock();audio.setMuted(!audio.muted);write('roadster-muted',audio.muted?'1':'0');syncSound();});
 $('music').addEventListener('click',()=>{music.setEnabled(!music.enabled);write('roadster-music',music.enabled?'1':'0');music.unlock();syncMusic();});
-$('bgm').addEventListener('error',syncMusic);
+$('bgm').addEventListener('error',()=>syncMusic());
 ui.thrust.addEventListener('pointerdown',e=>{
   if(game.phase!=='running'||activePointer!==null||e.button!==0)return;
   e.preventDefault();activePointer=e.pointerId;ui.thrust.setPointerCapture(e.pointerId);game.setHeld(true);ui.thrust.classList.add('pressed');audio.unlock();
@@ -136,9 +137,10 @@ $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();pause();$(
 
 function animate(now){
   const dt=lastTime?Math.min((now-lastTime)/1000,.1):0;lastTime=now;
-  game.update(dt);for(const cue of game.cues.splice(0))audio.cue(cue);renderHud();audio.update(game);
+  game.update(dt);
   // On impact the controls drop away while the wreck slides; the result appears once it settles.
   if(game.phase==='over'&&stage==='running'){release();phase('over');}
+  for(const cue of game.cues.splice(0))audio.cue(cue);renderHud();audio.update(game);
   if(game.phase==='over'&&game.settled)finish();
   scene.render(game,dt);requestAnimationFrame(animate);
 }

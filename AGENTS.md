@@ -22,6 +22,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 | `tests/modes.test.mjs` | 两种模式、尾喷状态与普通模式的预警、生存及碰撞测试 |
 | `tests/su7.test.mjs` | SU7 车流占比、蓝色车漆及不同模式和帧率下的碰撞、飞越测试 |
 | `tests/slow-row.test.mjs` | 三车并排生成、同步减速、解散、飞越及混合车流生存测试 |
+| `tests/music.browser.mjs` | 可选 Playwright 真实媒体回归，覆盖音乐阶段、格式回退、重开、前后台及按需加载；不在 `npm test` 中运行 |
 | `tests/pilot.mjs` | 测试用的前瞻自动驾驶，用于生存测试 |
 
 ## 模拟约定（`dist/game.js`）
@@ -71,7 +72,8 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 - 起飞按钮和滑动变道各自跟踪独立的指针，按住飞行时可以另一根手指滑动；松开起飞不能取消另一根手指的滑动。
 - `pointercancel`、`lostpointercapture`、窗口失焦、切到后台都会暂停；继续时倒数 3 秒。
 - 模式只在开始页切换，重开保留模式。`localStorage` 的 `roadster-mode` 保存选择，`roadster-best-normal` / `roadster-best-jet` 分别记成绩；旧 `roadster-best` 只用于读取喷气模式的历史成绩。静音和危险提示仍用 `roadster-muted`、`roadster-hints`。`roadster-music` 单独保存音乐开关（默认 `1` 开启）；不与音效静音联动。所有存储读写包在 try/catch 中，存储不可用时游戏照常运行。
-- BGM 用独立 HTMLAudioElement，子 `<source>` 优先选 `dist/audio/bgm.webm`（Opus 32 kbps 受限 VBR / 48 kHz 立体声，约 817 KB），备用 `dist/audio/bgm.m4a`（AAC-LC 40 kbps / 32 kHz 立体声，约 991 KB，faststart）；两份都是约 3 分 7 秒的完整曲目。不要再添加音频元素的 `src` 属性，它会覆盖子 source 的格式选择。正常只下载浏览器支持的一个来源，`preload="none"` 按需加载，循环播放、音量 `.45`，不接入音效 master。主页右上角的圆形 `#music` 按钮位于 `#sound` 下方，其他阶段隐藏。只在用户点击开始或音乐开关后解锁，不强行自动播放。`phase()` 和窗口前后台事件统一通过 `syncMusic()` 控制暂停，继续倒数期间保持暂停；不要在动画帧里调用 `play()`。播放拒绝应被捕获，音频失败不影响游戏。
+- BGM 全阶段共用一个独立 HTMLAudioElement，子 `<source>` 指向有词版 `dist/audio/bgm.webm`（Opus 32 kbps / 48 kHz 立体声，约 817 KB）和备用 `bgm.m4a`（AAC-LC 40 kbps / 32 kHz 立体声，约 991 KB，faststart），完整约 3 分 7 秒。不要添加音频元素的 `src` 属性，它会覆盖子 source 的格式选择。浏览器按支持的格式选择一个来源，`preload="none"` 按需加载；关闭音乐或手势解锁前不定位播放头，避免隐式请求音频。
+- `BackgroundMusic.setStage(stage,{suspended,restart})` 统一控制有词版 BGM 的播放状态：`ready` 音量 `.2`，`running` 为 `.45`，`over` 为立即暂停并保留播放位置，`result` 为 `.1`。碰撞后先进入 `over` 静音滑行，`finish()` 显示结算页后才切到 `result`，从撞车前的位置续播。每次 `start()` 和返回主页都传 `restart: true`；进入结算页、暂停后继续及前后台恢复不重置播放头或重载音频。`phase()` 和窗口前后台事件都经 `syncMusic()` 同步，暂停、倒数、后台期间不播放；不要在动画帧里反复调用 `play()`。音乐使用独立 AudioContext 的 GainNode 控制音量，不接入音效 master；WebAudio 不可用时回退到媒体元素音量。音乐和音效都只在用户手势后解锁；点击主页空白处或模式按钮也可解锁音乐，不强行自动播放。主页右上角圆形 `#music` 按钮位于 `#sound` 下方，其他阶段隐藏；所有阶段遵守保存的音乐开关。播放拒绝应被捕获，音频失败不影响游戏。
 
 ## 测试注意事项
 
