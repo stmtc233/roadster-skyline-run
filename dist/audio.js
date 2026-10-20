@@ -29,9 +29,9 @@ export class AudioEngine {
     this.motor.frequency.setTargetAtTime(50+state.speed*.45,t,.15);
     this.motorGain.gain.setTargetAtTime(running?.045:0,t,.08);
     // Road wind swells and brightens with pace; thrust stays the loudest air sound.
-    const pace=state.pace||0;
-    this.air.gain.setTargetAtTime(running?(state.thrusting?.24:.03+pace*.07):0,t,.05);
-    this.filter.frequency.setTargetAtTime(state.thrusting?1700:520+pace*700,t,.1);
+    const pace=state.pace||0,rolling=state.rollRemaining>0;
+    this.air.gain.setTargetAtTime(running?(rolling?.3:state.thrusting?.24:.03+pace*.07):0,t,.035);
+    this.filter.frequency.setTargetAtTime(rolling?2600:state.thrusting?1700:520+pace*700,t,.06);
     // Urgent bursts from the brake-failure car that merge into one blast once it is right behind.
     const runaway=running&&(state.traffic||[]).find(c=>c.horn);
     const near=runaway?Math.max(.15,1-Math.abs(runaway.z)/140):0,on=runaway&&(runaway.z>-30||((state.clock||0)*2.4)%1<.62);

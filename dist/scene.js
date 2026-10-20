@@ -1,7 +1,16 @@
 import * as THREE from 'three';
-import { createRoadster, createMPV, createSedan, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
+import { createRoadster, createMPV, createM9, createSedan, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
+import { AIR_LANE } from './game.js';
 
 const clamp = THREE.MathUtils.clamp;
+const smooth = t=>t*t*t*(t*(t*6-15)+10);
+// Integrate a smooth velocity ramp, with a steady middle instead of a fast spin through 180 degrees.
+function rollCurve(p) {
+  const ramp=.18,u=Math.min(p,1-p)/ramp;
+  if(u>=1)return (p-ramp/2)/(1-ramp);
+  const edge=ramp*(u*u*u-.5*u*u*u*u)/(1-ramp);
+  return p<.5?edge:1-edge;
+}
 export function createScene(canvas) {
   const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.75));
@@ -50,10 +59,11 @@ export function createScene(canvas) {
   buildHills(scene);
   const markers=buildMarkers(scene);
 
-  const player=createRoadster(); scene.add(player);
+  // Roll about the chassis centre, keeping the simulation's wheel-bottom altitude unchanged.
+  const rollPivot=new THREE.Group(),player=createRoadster();player.position.y=-.6;rollPivot.add(player);scene.add(rollPivot);
   const shadowTexture=makeShadowTexture();
   const playerShadow=makeShadow(shadowTexture,2.6,5.1);scene.add(playerShadow);
-  const jetMat=new THREE.MeshBasicMaterial({color:'#c5f0ff',transparent:true,opacity:.28,depthWrite:false,side:THREE.DoubleSide});
+  const jetMat=new THREE.MeshBasicMaterial({color:'#c5f0ff',transparent:true,opacity:.28,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   const jetCoreMat=new THREE.MeshBasicMaterial({color:'#f5ffff',transparent:true,opacity:.6,depthWrite:false});
   const jets=new THREE.Group(); player.add(jets);
   for(const x of [-.65,.65]) for(const z of [-1.17,1.14]) {
@@ -62,6 +72,17 @@ export function createScene(canvas) {
     const core=new THREE.Mesh(new THREE.CylinderGeometry(.025,.11,.75,10,1,true),jetCoreMat);core.position.y=-.40;jet.add(core);
     const nozzle=new THREE.Mesh(new THREE.TorusGeometry(.055,.018,5,10),new THREE.MeshStandardMaterial({color:'#a8d7dd',metalness:.8,roughness:.3}));
     nozzle.rotation.x=Math.PI/2;jet.add(nozzle);
+  }
+  // Short side bursts start the roll, then the opposite nozzles arrest it. Cold gas appears as white vapour.
+  const sideJets=[],sideJetMat=new THREE.MeshBasicMaterial({color:'#e1f6ff',transparent:true,opacity:.32,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
+  const nozzleMat=new THREE.MeshStandardMaterial({color:'#9cb4bc',metalness:.85,roughness:.24});
+  for(const side of [-1,1])for(const z of [-1.12,1.1]) {
+    const jet=new THREE.Group();jet.position.set(side*.91,.64,z);jet.rotation.z=side*Math.PI/2;player.add(jet);
+    const nozzle=new THREE.Mesh(new THREE.TorusGeometry(.058,.019,5,10),nozzleMat);nozzle.rotation.x=Math.PI/2;jet.add(nozzle);
+    const burst=new THREE.Group();jet.add(burst);
+    const shell=new THREE.Mesh(new THREE.CylinderGeometry(.045,.34,1.7,12,1,true),sideJetMat);shell.position.y=-.88;burst.add(shell);
+    const core=new THREE.Mesh(new THREE.CylinderGeometry(.025,.13,1.2,10,1,true),jetCoreMat);core.position.y=-.62;burst.add(core);
+    sideJets.push({burst,side});
   }
   // Wind streaks ring the chase camera's sides and top, clear of the lanes below, and fade in with pace.
   const streakMat=new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,opacity:0,depthWrite:false,toneMapped:false});
@@ -75,14 +96,15 @@ export function createScene(canvas) {
   // Sparks thrown up by wrecks while they are still sliding.
   const sparks=new THREE.InstancedMesh(new THREE.BoxGeometry(.05,.05,.24),new THREE.MeshBasicMaterial({color:'#ffc36e',toneMapped:false}),140);
   sparks.frustumCulled=false;sparks.count=0;scene.add(sparks);
-  const carViews=new Map(),carPools={sedan:[],suv:[],mpv:[],truck:[],semi:[]},batteryViews=new Map(),batteryPool=[];
-  const wheelRadius={sedan:.32,suv:.405,mpv:.395,truck:.52,semi:.52};
-  const factories={sedan:()=>createSedan({color:'#c7c9c1'}),suv:createSUV,mpv:createMPV,truck:createTruck,semi:createSemi};
+  const carViews=new Map(),carPools={sedan:[],suv:[],mpv:[],m9:[],truck:[],semi:[]},batteryViews=new Map(),batteryPool=[];
+  const wheelRadius={sedan:.32,suv:.405,mpv:.395,m9:.39,truck:.52,semi:.52};
+  const factories={sedan:()=>createSedan({color:'#c7c9c1'}),suv:createSUV,mpv:createMPV,m9:createM9,truck:createTruck,semi:createSemi};
   // A soft red halo behind the outermost brake lamps keeps braking readable at a distance, where the lamps are a few pixels.
   const glowMat=new THREE.SpriteMaterial({map:makeGlowTexture(),color:'#ff2a1c',blending:THREE.AdditiveBlending,depthWrite:false,transparent:true});
   const lampPosition=new THREE.Vector3();
   let canvasRect=null,mirrorRect=null,mirrorElement=null,lastMirrorMeasure=0;
   let width=1,height=1;
+  let visualRoll=0,lastRollRemaining=0,lastRollDirection=0;
   function resize() {
     canvasRect=canvas.getBoundingClientRect(); width=Math.max(1,canvasRect.width);height=Math.max(1,canvasRect.height);
     renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();
@@ -98,8 +120,8 @@ export function createScene(canvas) {
     }
     const glows=[];
     for(const at of left?[left,right]:[]){const glow=new THREE.Sprite(glowMat);glow.position.set(at.x,at.y,at.z+.12);glow.visible=false;vehicle.add(glow);glows.push(glow);}
-    // Only MPVs break down; theirs carries a warning triangle placed well behind it on the road.
-    let triangle=null;if(car.model==='mpv'){triangle=createTriangle();triangle.position.z=32;root.add(triangle);}
+    // Roadside M9s carry a warning triangle placed well behind them on the road.
+    let triangle=null;if(car.model==='m9'){triangle=createTriangle();triangle.position.z=32;root.add(triangle);}
     return {root,vehicle,shadow,triangle,glows,model:car.model,paint:'',pitch:0,broken:false,seen:false};
   }
   function createBatteryView() {
@@ -145,11 +167,30 @@ export function createScene(canvas) {
     // One texture repeat spans 700/repeat.y metres of road, so the asphalt grain moves at true road speed.
     if(roadMat.map)roadMat.map.offset.y=(travel*roadMat.map.repeat.y/700)%1;
     const px=state.x||0;
-    player.position.set(px,altitude,0);
-    // The simulation supplies the sole vertical position. Only small pitch changes express thrust.
+    rollPivot.position.set(px,altitude+.6,0);
+    // Pitch expresses thrust; the separate pivot completes the lateral roll.
     player.rotation.x=state.thrusting?-.025:0;
     player.rotation.y=-((state.lane||0)*4-px)*.025+(state.yaw||0);
-    player.rotation.z=-((state.lane||0)*4-px)*.018;
+    const rolling=state.rollRemaining>0;
+    // Present the fractional simulation step too, so 144/165 Hz screens do not repeat a 120 Hz pose.
+    const moving=state.phase==='running'||(state.phase==='over'&&!state.settled);
+    const fraction=moving?clamp(state.accumulator||0,0,1/120):0;
+    const progress=rolling?clamp(1-(state.rollRemaining-fraction)/AIR_LANE.duration,0,1):0;
+    const newRoll=state.rollRemaining>lastRollRemaining||state.rollDirection!==lastRollDirection;
+    visualRoll=rolling?(newRoll?progress:Math.max(visualRoll,progress)):0;
+    lastRollRemaining=state.rollRemaining;lastRollDirection=state.rollDirection;
+    const rollProgress=visualRoll,rollEase=rollCurve(rollProgress);
+    rollPivot.rotation.z=rolling?-state.rollDirection*Math.PI*2*rollEase:0;
+    // A smooth body arc clears the road and stays continuous when landing on a truck roof.
+    // This is body animation only; collision altitude, HUD height and camera still follow the simulation.
+    if(rolling){const lift=smooth(clamp(Math.min(rollProgress,1-rollProgress)/.22,0,1));rollPivot.position.y+=.7*lift;}
+    player.rotation.z=rolling?0:-((state.lane||0)*4-px)*.018;
+    for(const {burst,side} of sideJets) {
+      const push=side===-state.rollDirection;
+      const strength=rolling?(push?smooth(clamp(rollProgress/.12,0,1))*(1-smooth(clamp((rollProgress-.40)/.16,0,1))):smooth(clamp((rollProgress-.44)/.16,0,1))*(1-smooth(clamp((rollProgress-.86)/.14,0,1)))):0;
+      burst.visible=strength>.001;
+      burst.scale.set(Math.sqrt(strength),strength*(.98+Math.sin(time*19)*.02),Math.sqrt(strength));
+    }
     spin(player,-travel/.32);
     // On a truck roof the shadow falls on the roof.
     const floor=state.floor||0,clearance=Math.max(0,altitude-floor);
@@ -188,7 +229,8 @@ export function createScene(canvas) {
       }
       // A dragged corner throws a tail of sparks back along the road.
       if(car.mode==='broken'&&car.speed>.5) {
-        const side=car.broken%2===0?1:-1,corner=car.broken<=2?-1.77:1.68;
+        const side=car.broken%2===0?1:-1,wheel=view.vehicle.userData.wheels?.[car.broken-1];
+        const corner=wheel?wheel.position.z+wheel.parent.position.z:0;
         for(let k=0;k<20&&sparkCount<sparks.instanceMatrix.count;k++) {
           const seed=car.id*5.17+k*2.3,flicker=Math.sin(time*89+seed),reach=Math.min(6,car.speed*.3),trail=((k*.37+time*9)%1)*reach;
           transform.position.set(car.x+side*(.95+Math.abs(Math.sin(seed+time*31))*.35),.05+Math.abs(Math.sin(time*53+seed))*.55*(1-trail/6),-car.z+corner+.4+trail);
@@ -263,7 +305,9 @@ export function createScene(canvas) {
       renderer.setViewport(0,0,width,height);
     }
   }
-  resize();return {render,resize};
+  // Compile hidden thrust effects while the loading screen is up, before the first manoeuvre.
+  const ready=renderer.compileAsync(scene,camera);
+  resize();return {render,resize,ready};
 }
 
 function asphaltTexture() {

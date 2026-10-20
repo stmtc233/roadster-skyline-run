@@ -1,4 +1,4 @@
-import {Game,HINTS} from './game.js';
+import {Game,HINTS,AIR_LANE} from './game.js';
 import {AudioEngine} from './audio.js';
 
 const $=id=>document.getElementById(id);
@@ -10,7 +10,7 @@ const audio=new AudioEngine(read('roadster-muted','0')==='1');
 // Each hazard type is explained once, the first time the player meets it; after that only the road shows it.
 const seenHints=new Set(read('roadster-hints','').split(',').filter(Boolean));
 let scene, activePointer=null, lastWarning=0, hintUntil=0, lastTime=0, resumeTimer=null, countdownToken=0;
-let stage='ready', ended=false, swipe=null;
+let stage='ready', ended=false, swipe=null, laneNotice='', laneNoticeUntil=0;
 const ui={distance:$('distance'),score:$('score'),speed:$('speed'),gas:$('gas-number'),fill:$('gas-fill'),meter:$('gas-meter'),gasNote:$('gas-note'),altitude:$('altitude'),hint:$('hint'),hintText:$('hint-text'),mirror:$('mirror-frame'),feedback:$('feedback'),flight:$('flight-state'),thrust:$('thrust')};
 
 function refreshBest(){ $('welcome-best').textContent=`最佳纪录 ${Math.floor(best).toLocaleString()} m`;$('best-hud').textContent=`最佳 ${Math.floor(best).toLocaleString()} m`;}
@@ -19,7 +19,7 @@ function phase(value){stage=value;swipe=null;$('game-shell').dataset.phase=value
 function release(){activePointer=null;game.setHeld(false);ui.thrust.classList.remove('pressed');}
 function cancelCountdown(){countdownToken++;clearTimeout(resumeTimer);resumeTimer=null;$('countdown').hidden=true;}
 function start(){
-  cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;hintUntil=0;
+  cancelCountdown();audio.unlock();release();game.start();phase('running');ended=false;lastWarning=0;hintUntil=0;laneNoticeUntil=0;
   $('welcome').hidden=true;$('result').hidden=true;$('pause-panel').hidden=true;lastTime=performance.now();
 }
 function pause(){
@@ -48,21 +48,28 @@ function finish(){
 }
 // Each hint is shown once, the first time the player meets that situation.
 function hint(kind,text){if(seenHints.has(kind))return;seenHints.add(kind);write('roadster-hints',[...seenHints].join(','));ui.hintText.textContent=text;hintUntil=game.clock+3.2;}
+function changeLane(dir){
+  const gas=game.gas,changed=game.moveLane(dir);
+  if(changed&&game.gas<gas)laneNotice=`侧翻喷气 −${AIR_LANE.gas} 气量`;
+  else if(!changed&&game.lane+dir>=-1&&game.lane+dir<=1&&game.altitude-game.deck()>.05&&game.gas<AIR_LANE.gas)laneNotice=`气量不足 ${AIR_LANE.gas} · 无法空中变道`;
+  else return;
+  laneNoticeUntil=game.clock+1.4;
+}
 function renderHud(){
   ui.distance.textContent=Math.floor(game.distance).toLocaleString();ui.score.textContent=game.score.toLocaleString();
-  ui.speed.textContent=Math.round(game.speed);ui.gas.textContent=Math.ceil(game.gas);ui.fill.style.width=`${game.gas}%`;
-  ui.meter.setAttribute('aria-valuenow',Math.round(game.gas));ui.meter.classList.toggle('low',game.gas<25);
+  ui.speed.textContent=Math.round(game.speed);ui.gas.textContent=Math.floor(game.gas+1e-8);ui.fill.style.width=`${game.gas}%`;
+  ui.meter.setAttribute('aria-valuenow',Math.floor(game.gas+1e-8));ui.meter.classList.toggle('low',game.gas<AIR_LANE.gas);
   ui.altitude.textContent=`${game.altitude.toFixed(1)} m`;
   const aloft=game.altitude-game.floor>.05,onTruck=!aloft&&game.floor>0;
-  ui.gasNote.textContent=game.exhausted?'气量耗尽 · 松手后落地攒气':game.gas<25?'气量不足 · 注意落地时机':game.thrusting?'喷气飞行 · 持续耗气':aloft?'正在下降 · 注意落点':onTruck?'踩在货车车厢上 · 自动攒气':'地面行驶 · 自动攒气';
-  ui.flight.querySelector('b').textContent=game.thrusting?'喷气飞行':aloft?'正在下降':onTruck?'货车车厢上':['左车道','中间车道','右车道'][game.lane+1];
+  ui.gasNote.textContent=game.exhausted?'气量耗尽 · 松手后落地攒气':aloft&&game.gas<AIR_LANE.gas?'不足 25 气量 · 空中无法变道':game.rollRemaining>0?'侧翻喷气 · 已消耗 25 气量':game.thrusting?'喷气飞行 · 持续耗气':aloft?'空中变道 −25 · 松手下降':onTruck?'踩在货车车厢上 · 自动攒气':'地面行驶 · 自动攒气';
+  ui.flight.querySelector('b').textContent=game.rollRemaining>0?'360° 侧翻变道':game.thrusting?'喷气飞行':aloft?'正在下降':onTruck?'货车车厢上':['左车道','中间车道','右车道'][game.lane+1];
   $('thrust-label').textContent=game.exhausted?'松手攒气':game.thrusting?'松手降落':'按住起飞';
   const w=game.warning;
   if(w&&w.id!==lastWarning){lastWarning=w.id;hint(w.kind,w.text);}
   else if(game.phase==='running'&&game.clock>=hintUntil&&!seenHints.has('truck')&&game.traffic.some(c=>c.deck&&c.z>40&&c.z<160))hint('truck',HINTS.truck);
   ui.hint.hidden=!(game.phase==='running'&&game.clock<hintUntil);
   ui.mirror.classList.toggle('danger',game.phase==='running'&&game.traffic.some(c=>c.horn&&c.z<0));
-  ui.feedback.textContent=game.time<4&&game.phase==='running'?'左右滑动变道 · 按住起飞':'';
+  ui.feedback.textContent=game.phase==='running'?(game.clock<laneNoticeUntil?laneNotice:game.time<4?'左右滑动变道 · 按住起飞':''):'';
 }
 
 $('start').addEventListener('click',start);$('again').addEventListener('click',start);$('restart-paused').addEventListener('click',start);
@@ -85,13 +92,13 @@ shell.addEventListener('pointerdown',e=>{
 shell.addEventListener('pointermove',e=>{
   if(!swipe||e.pointerId!==swipe.id||swipe.used)return;
   const dx=e.clientX-swipe.x,dy=e.clientY-swipe.y;
-  if(Math.abs(dx)>=32&&Math.abs(dx)>Math.abs(dy)*1.2){game.moveLane(Math.sign(dx));swipe.used=true;e.preventDefault();}
+  if(Math.abs(dx)>=32&&Math.abs(dx)>Math.abs(dy)*1.2){changeLane(Math.sign(dx));swipe.used=true;e.preventDefault();}
 });
 shell.addEventListener('pointerup',e=>{if(swipe?.id===e.pointerId)swipe=null;});
 shell.addEventListener('pointercancel',e=>{if(swipe?.id===e.pointerId)pause();});
 shell.addEventListener('lostpointercapture',e=>{if(swipe?.id===e.pointerId)pause();});
 document.addEventListener('keydown',e=>{
-  if(game.phase==='running'&&['ArrowLeft','ArrowRight','KeyA','KeyD'].includes(e.code)){e.preventDefault();if(!e.repeat)game.moveLane(['ArrowLeft','KeyA'].includes(e.code)?-1:1);}
+  if(game.phase==='running'&&['ArrowLeft','ArrowRight','KeyA','KeyD'].includes(e.code)){e.preventDefault();if(!e.repeat)changeLane(['ArrowLeft','KeyA'].includes(e.code)?-1:1);}
   if(e.code==='Space'&&game.phase==='running'){e.preventDefault();if(!e.repeat){game.setHeld(true);ui.thrust.classList.add('pressed');}}
   if(e.code==='Escape')pause();
 });
@@ -111,7 +118,7 @@ function animate(now){
 }
 refreshBest();syncSound();
 try {
-  const {createScene}=await import('./scene.js');scene=createScene($('world'));scene.resize();
+  const {createScene}=await import('./scene.js');scene=createScene($('world'));await scene.ready;scene.resize();
   $('loading').hidden=true;$('start').disabled=false;$('start').innerHTML='开始挑战 <span>↗</span>';
   requestAnimationFrame(animate);
 } catch(error){

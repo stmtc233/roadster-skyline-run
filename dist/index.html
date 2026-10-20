@@ -30,7 +30,7 @@
         <div id="flight-state" class="flight-state"><span></span><b>地面行驶</b></div>
       </div>
       <div id="controls" class="controls">
-        <div class="swipe-hint">← 左右滑动画面变道 →</div><div class="fuel-meta"><span><svg viewBox="0 0 20 20"><path d="M12 2 5 11h5l-2 7 7-10h-5z"/></svg> 气体燃料</span><strong><span id="gas-number">100</span><small> %</small></strong></div>
+        <div class="swipe-hint">← 滑动变道 · 空中侧翻 −25 气量 →</div><div class="fuel-meta"><span><svg viewBox="0 0 20 20"><path d="M12 2 5 11h5l-2 7 7-10h-5z"/></svg> 气体燃料</span><strong><span id="gas-number">100</span><small> %</small></strong></div>
         <div class="fuel-track" role="progressbar" aria-label="气体燃料" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" id="gas-meter"><div id="gas-fill"></div><i></i><i></i><i></i></div>
         <div class="fuel-note"><span id="gas-note">地面行驶 · 自动攒气</span><span id="altitude">0.0 m</span></div>
         <button id="thrust" class="thrust" aria-label="按住喷气起飞，松手降落"><svg viewBox="0 0 28 28"><path d="m6 16 8-9 8 9M14 7v15M9 22v3M19 22v3"/></svg><span><strong id="thrust-label">按住起飞</strong><small>HOLD TO FLY</small></span><span class="touch-rings"></span></button>
@@ -46,7 +46,7 @@
       <div id="error" class="modal-backdrop" hidden><section class="dialog"><h2>公路暂未就绪</h2><p id="error-text">请使用支持 WebGL 的新版浏览器，刷新后重试。</p><button onclick="location.reload()" class="primary-button">重新加载 <span>↻</span></button></section></div>
       <noscript><div class="no-script">请开启浏览器 JavaScript 后开始游戏。</div></noscript>
     </section>
-    <aside class="field-guide" aria-label="操作说明"><div class="eyebrow">THE FIELD GUIDE</div><h2>保持冷静。<br>及时离地。</h2><ol><li><span>01</span><div><b>读懂危险</b><p>前车急刹、后车逼近，<br>崴脚抛锚和弹出的电池。</p></div></li><li><span>02</span><div><b>掌握时机</b><p>左右滑动，切换车道。<br>按住起飞，松手下降。</p></div></li><li><span>03</span><div><b>留一点余量</b><p>飞行持续耗气。<br>落地或踩上货车车厢，为下一次攒气。</p></div></li></ol><div class="guide-footer"><span class="tiny-road">║</span><span>距离，就是你的成绩。<br><b>EVERY METER COUNTS.</b></span></div></aside>
+    <aside class="field-guide" aria-label="操作说明"><div class="eyebrow">THE FIELD GUIDE</div><h2>保持冷静。<br>及时离地。</h2><ol><li><span>01</span><div><b>读懂危险</b><p>前车急刹、后车逼近，<br>崴脚抛锚和弹出的电池。</p></div></li><li><span>02</span><div><b>掌握时机</b><p>左右滑动，切换车道。<br>按住起飞，松手下降。</p></div></li><li><span>03</span><div><b>留一点余量</b><p>飞行持续耗气，空中侧翻变道再耗 25 气量。<br>落地或踩上货车车厢，为下一次攒气。</p></div></li></ol><div class="guide-footer"><span class="tiny-road">║</span><span>距离，就是你的成绩。<br><b>EVERY METER COUNTS.</b></span></div></aside>
   </main>
   <script type="module" src="./app.js"></script>
 </body>

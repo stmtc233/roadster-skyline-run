@@ -288,6 +288,102 @@ export function createMPV() {
   return g;
 }
 
+export function createM9() {
+  const g=new THREE.Group();g.name='AITO M9 blue and silver SUV';
+  const body=new THREE.Group();body.name='M9 body';g.add(body);
+  const paint=mat('#174776',.65,.24),silver=mat('#c4cbd0',.73,.22);
+  const glazing=mat('#14242e',.52,.14,{side:THREE.DoubleSide});
+  const trim=mat('#cbd5dc',.87,.19),arch=mat('#17232c',.2,.5,{side:THREE.DoubleSide});
+  const head=M.head.clone(),red=tail(g);g.userData.paint=paint;g.userData.headLight=head;
+  // M9's long rounded hood and silver upper cabin distinguish it from the upright iCAR and V800.
+  loft([{z:-2.615,w:.69,b:.37,t:1.075,r:.46},{z:-2.56,w:.83,b:.30,t:1.105,r:.60},
+    {z:-2.38,w:.96,b:.26,t:1.12,r:.72},{z:-1.45,w:1.0,b:.25,t:1.17,r:.76},
+    {z:.80,w:1.0,b:.25,t:1.17,r:.77},{z:2.08,w:.99,b:.26,t:1.17,r:.75},
+    {z:2.38,w:.94,b:.29,t:1.14,r:.70},{z:2.56,w:.82,b:.33,t:1.09,r:.61},
+    {z:2.615,w:.72,b:.37,t:1.055,r:.51}],paint,body);
+  const hood=new THREE.BufferGeometry(),positions=[],indices=[];
+  const sections=[[-2.575,.68,1.18],[-2.49,.79,1.19],[-2.10,.87,1.225],[-1.36,.90,1.245]];
+  for(let i=0;i<sections.length;i++)for(let j=0;j<=8;j++) {
+    const [z,w,y]=sections[i],t=j/4-1;positions.push(w*t,y-.045*t*t,z+(i===0?.08*t*t:0));
+    if(i&&j){const a=i*9+j;indices.push(a-10,a-1,a-9,a-1,a,a-9);}
+  }
+  hood.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));hood.setIndex(indices);
+  hood.computeVertexNormals();mesh(hood,silver,body);
+  cabin(body,silver,[{z:-1.45,w:.91,b:1.15,t:1.22,r:.78},{z:-.57,w:.90,b:1.15,t:1.78,r:.78},
+    {z:.04,w:.91,b:1.15,t:1.80,r:.79},{z:1.65,w:.90,b:1.15,t:1.79,r:.79},
+    {z:2.22,w:.88,b:1.15,t:1.70,r:.77},{z:2.48,w:.85,b:1.15,t:1.37,r:.73}]);
+  panel(body,glazing,[[-.891,1.245,-1.49],[.891,1.245,-1.49],[.779,1.775,-.63],[-.779,1.775,-.63]]);
+  round(body,glazing,0,1.813,.66,1.48,.026,2.25,.08);
+  round(body,M.black,0,1.861,-.51,.31,.095,.24,.04);
+  strip(body,glazing,0,1.87,-.64,.235,.035,.018);
+  for(const side of [-1,1]) {
+    const windows=[
+      [[.923,1.225,-1.34],[.806,1.735,-.54],[.806,1.757,.16],[.923,1.225,.16]],
+      [[.923,1.225,.17],[.806,1.757,.17],[.806,1.747,1.29],[.920,1.225,1.29]],
+      [[.920,1.225,1.30],[.806,1.747,1.30],[.797,1.66,2.09],[.887,1.225,2.32]]
+    ];
+    for(const points of windows)panel(body,glazing,points.map(([x,y,z])=>[side*x,y,z]));
+    const outline=[[side*.918,1.216,-1.34],[side*.810,1.74,-.55],[side*.810,1.764,1.65],
+      [side*.802,1.677,2.12],[side*.890,1.216,2.34],[side*.918,1.216,-1.34]];
+    for(let i=0;i<outline.length-1;i++)edge(body,trim,outline[i],outline[i+1],.006);
+    for(const z of [.165,1.295])panel(body,M.black,[[side*.925,1.225,z-.022],[side*.809,1.75,z-.022],
+      [side*.809,1.75,z+.022],[side*.925,1.225,z+.022]]);
+    box(body,arch,side*1.0,.33,.06,.065,.10,3.96);
+    strip(body,trim,side*1.014,.40,.06,.018,.025,4.13);
+    for(const z of [.17,1.35])edge(body,arch,[side*1.003,.49,z],[side*1.003,1.15,z],.006);
+    for(const z of [-.16,1.05]) {
+      round(body,arch,side*1.008,1.04,z,.018,.055,.28,.01);
+      strip(body,trim,side*1.023,1.048,z,.018,.028,.23);
+    }
+    round(body,silver,side*1.066,1.26,-1.08,.24,.15,.31,.045);
+    hazard(body,side*1.18,1.25,-1.10,.025,.027,.23);
+    for(const z of [-1.60,1.60])wheelArch(body,arch,side,z,.43);
+    strip(body,trim,side*.76,1.825,.66,.019,.018,2.25);
+  }
+  // The wide light bar, enclosed nose and low intake keep the front recognisably M9.
+  strip(body,M.black,0,.997,-2.621,.94,.062,.035);
+  strip(body,head,0,1.012,-2.643,.94,.022,.022);
+  for(const side of [-1,1]) {
+    const lamp=new THREE.Group();lamp.position.set(side*.67,1.025,-2.551);lamp.rotation.y=-side*.22;body.add(lamp);
+    round(lamp,M.black,0,0,0,.50,.205,.075,.065);
+    for(const x of [-.145,0,.145])round(lamp,head,x,.047,-.046,.095,.048,.020,.022);
+    round(lamp,head,0,-.059,-.048,.44,.035,.020,.015);
+    hazard(body,side*.897,.992,-2.544,.024,.11,.025);
+    round(body,arch,side*.82,.55,-2.53,.18,.22,.10,.04);
+    strip(body,trim,side*.80,.415,-2.552,.25,.028,.025);
+  }
+  round(body,trim,0,.43,-2.619,1.36,.245,.035,.075);
+  round(body,M.black,0,.43,-2.642,1.28,.19,.028,.06);
+  for(const x of [-.46,-.23,0,.23,.46])box(body,M.darkAlloy,x,.43,-2.648,.017,.12,.016);
+  strip(body,trim,0,.30,-2.51,1.66,.027,.04);
+  badge(body,'AITO',0,.90,-2.642,.27,.075);
+  badge(body,'M9',0,.755,-2.642,.39,.12);
+  panel(body,glazing,[[-.78,1.24,2.50],[-.78,1.40,2.50],[.78,1.40,2.50],[.78,1.24,2.50]]);
+  panel(body,glazing,[[-.78,1.40,2.50],[-.745,1.68,2.24],[.745,1.68,2.24],[.78,1.40,2.50]]);
+  strip(body,silver,0,1.744,2.16,1.62,.055,.27);
+  strip(body,M.black,0,1.10,2.605,1.40,.062,.035);
+  g.userData.brakeLights.push(strip(body,red,0,1.12,2.631,1.38,.024,.027));
+  for(const side of [-1,1]) {
+    const lamp=new THREE.Group();lamp.position.set(side*.73,1.065,2.57);lamp.rotation.y=side*.27;body.add(lamp);
+    round(lamp,M.black,0,0,0,.43,.20,.055,.06);
+    g.userData.brakeLights.push(round(lamp,red,0,.048,.038,.40,.025,.020,.012));
+    g.userData.brakeLights.push(round(lamp,red,0,-.045,.038,.36,.038,.020,.016));
+    strip(lamp,red,side*.182,.005,.038,.025,.10,.020);
+    hazard(body,side*.75,1.064,2.606,.21,.025,.025);
+    strip(body,red,side*.81,.43,2.565,.17,.03,.025);
+  }
+  round(body,M.black,0,.35,2.62,1.47,.16,.08,.05);
+  strip(body,trim,0,.44,2.642,1.49,.025,.028);
+  badge(body,'AITO',0,.88,2.62,.46,.095);badge(body,'M9',.64,.82,2.642,.23,.10);
+  round(body,M.black,0,.72,2.61,.48,.14,.025,.008);badge(body,'M9',0,.72,2.63,.35,.10);
+  g.userData.hazardLights=body.userData.hazardLights;
+  wheels(g,-1.60,1.60,.963,.39);
+  for(const wheel of g.userData.wheels) {
+    const spoke=mesh(spokeGeo,M.alloy,wheel,Math.sign(wheel.position.x)*.122,0,0);spoke.rotation.x=.18;
+  }
+  brokenSuspension(g,body);return g;
+}
+
 export function createSUV() {
   const g=new THREE.Group();g.name='iCAR 03T red and black SUV';
   const paint=mat('#d52332',.47,.27), black=mat('#111a20',.35,.34);

@@ -14,7 +14,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 | 文件 | 职责 |
 |---|---|
 | `dist/game.js` | 纯规则模拟，不碰 DOM 和 Three.js，可在 Node 中直接测试 |
-| `dist/scene.js` | `createScene(canvas)` → `{render(state,dt), resize()}`，只读游戏状态 |
+| `dist/scene.js` | `createScene(canvas)` → `{render(state,dt), resize(), ready}`，只读游戏状态；`ready` 是材质预热 Promise，启动前等待 |
 | `dist/models.js` | 车辆和电池模型工厂；没有 `document` 时跳过画布徽标，能解析 `three` 的 Node 环境里也可实例化 |
 | `dist/app.js` | 触屏/键盘输入、HUD、暂停与倒数、记录存储，串起其他模块 |
 | `dist/audio.js` | WebAudio 引擎声与风声，必须在用户手势之后才创建 |
@@ -30,16 +30,17 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 - 距离：`distance` 是成绩，撞车瞬间冻结；`travel` 是画面滚动用的实际行驶距离，撞车后随滑行继续增加。
 - 车速由 `SPEED`（`start` / `top` / `ramp`）决定，是时间的函数；`pace` getter 给出 0–1 的速度进度，镜头、风线和风声都读它。调手感先改 `SPEED`。
 - 气量与飞行：喷气每秒耗 25，地面每秒回 24；上升 8.5 m/s，下降 6 m/s，高度上限 8 m。气量耗尽后必须松手才能再次起飞。变道横移 13 m/s。
-- 所有车辆都在 `traffic` 里（`model` 为 `sedan` / `suv` / `mpv` / `truck` / `semi`），各自有真实车速、跟车刹车、转向灯变道（`signal` 先闪 `SIGNAL` 秒再横移）。弹出的电池在 `batteries` 里。`obstacles()` 返回两者合集。车身尺寸都在 `BODY`；货车很长，凡是按车距判断的地方（`laneClear`、生成、`launchRear`）都要用 `length` 计算，不要写死车距。
-- 车流比例在 `spawnTraffic`：轿车约一半，MPV 约 1/5，SUV 约 1/8，货车约 1/7。新车有 35% 放在玩家当前车道，保证前方常有可能急刹的车。货车车速贴近玩家（0.70–0.78 倍），方便落上去。
+- 空中变道参数在 `AIR_LANE`：每跨一条车道额外耗 25 气量，0.425 s 完成 360° 翻滚（`rollRemaining` / `rollDirection`），完成前不再接收变道。`moveLane()` 返回是否成功，拒绝、越界、暂停都不扣气。以 `altitude - deck() > .05` 判断空中，地面和货车顶免费；扣到 0 同样进入耗尽状态。动画只读模拟时间，暂停冻结，重开清空。
+- 所有车辆都在 `traffic` 里（`model` 为 `sedan` / `suv` / `mpv` / `m9` / `truck` / `semi`），各自有真实车速、跟车刹车、转向灯变道（`signal` 先闪 `SIGNAL` 秒再横移）。弹出的电池在 `batteries` 里。`obstacles()` 返回两者合集。车身尺寸都在 `BODY`；货车很长，凡是按车距判断的地方（`laneClear`、生成、`launchRear`）都要用 `length` 计算，不要写死车距。
+- 车流比例在 `spawnTraffic`：轿车约一半，MPV 和 M9 各约 1/7，iCAR SUV 约 1/10，货车约 1/7。新车有 35% 放在玩家当前车道，保证前方常有可能急刹的车。货车车速贴近玩家（0.70–0.78 倍），方便落上去。
 - 货车（`deck: true`）的车厢顶是高 `height`（3.9 m）的平台：`deck()` 给出玩家脚下的平台高度，存在 `floor` 里。判定和 `hit()` 一致：投影重叠且 `altitude + .1 >= height` 就站在上面，否则就是撞车。站在车厢顶上算落地，照常攒气；开过车头或变道离开后从车厢高度往下落。身后的车只在玩家低到会被撞时才把玩家当成前车（`leader()`），所以玩家站在货车顶上或从车上方飞过时，下面的车照常行驶。
 - 急刹（每秒减速超过 6.5 m/s²）时 `flash` 为 true，刹车灯频闪；普通减速只是常亮。
 - 车与车接触时按质量交换动量，双方进入 `crashed`：打双闪、打转、以 `SLIDE` 减速滑行到停，之后作为事故车留在原地成为障碍。司机看到事故车或急停车会紧急刹车，并尽量变道绕开。
-- 危险事件有 `front`（急刹）/ `battery`（SUV 双闪急停后弹出电池）/ `rear`（后车刹车失灵）/ `breakdown`（MPV 悬挂断裂“崴脚”）/ `parked`（路边抛锚的 MPV）。并线是普通车流的行为，不算危险事件。
+- 危险事件有 `front`（急刹）/ `battery`（iCAR SUV 双闪急停后弹出电池）/ `rear`（V800 MPV 后车刹车失灵）/ `breakdown`（M9 悬挂断裂“崴脚”）/ `parked`（路边抛锚的 M9）。并线是普通车流的行为，不算危险事件。
 - 节奏：同一时间最多一个排队中的事件、两个进行中的事件；相邻两个危险撞到玩家的时刻（`contactAt`）至少相隔 `spacing` 秒（开局 2.2 s，一分钟后收紧到 1.2 s）。
 - 危险都来自路上已有的车：`plan()` 先挑一辆车（`stage: 'planned'`），等玩家靠近到 `gain()` 算出的距离再触发，让从第一个视听信号到接触的时间固定为 `CUE` 中的秒数，不随车速变化。几种都能做时按 `WEIGHT` 加权挑，急刹是主力，并尽量不和上一次同类（急刹除外）。排队中的车会按玩家当前所在车道改做还能做的事（同车道急刹或崴脚，相邻车道的 SUV 弹电池），做不了就放弃重排。
 - 不需要特定前车的两种危险是补位：刹车失灵的 MPV 从玩家身后（主镜头外）出现，要求身后车道是空的；路边抛锚车由 `park()` 直接放在 215–400 m 外的雾里，`contactAt` 按 `arrival()` 算，两次之间至少隔 25 s。它们平时偶尔出现，只有前方 1.8 s 都没有可用的车（`wanting`）时才顶上来。
-- 崴脚（`snap()`）：只有玩家车道里第一辆 MPV 会发生。车辆进入 `mode: 'broken'`，`broken` 是断掉的车轮（1–4，对应模型 `userData.wheels` 的顺序），`brokenAt` 是断裂时刻；以 `DRAG` 拖地减速到停，同时向断轮一侧偏到 `drift`：外侧车道偏到路边（车道中心外 `SHOULDER` 米），中间车道只偏 0.9 m，始终不离开本车道。路边抛锚车也是 `broken` 状态、车速 0、`triangle` 为 true，停在外侧车道中心外 `SHOULDER` 米处，仍然挡住这条车道。
+- 崴脚（`snap()`）：只有玩家车道里第一辆 M9 会发生。车辆进入 `mode: 'broken'`，`broken` 是断掉的车轮（1–4，对应模型 `userData.wheels` 的顺序），`brokenAt` 是断裂时刻；以 `DRAG` 拖地减速到停，同时向断轮一侧偏到 `drift`：外侧车道偏到路边（车道中心外 `SHOULDER` 米），中间车道只偏 0.9 m，始终不离开本车道。路边抛锚车也是 `broken` 状态、车速 0、`triangle` 为 true，停在外侧车道中心外 `SHOULDER` 米处，仍然挡住这条车道。
 - 新车只在 210 m 以外的雾里出现，开局车辆由 `OPENING` 预先摆好。不要在玩家看得见的地方凭空放车或删车。
 - `spawn(kind)` 只给测试用：立刻在触发距离上摆出一个危险。正式游戏不调用它。
 - 普通车会打灯并线到玩家前方，但从开始打灯到玩家撞上至少要有 `MERGE`（3 s），由 `laneClear` 保证。
@@ -50,12 +51,14 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 ## 渲染约定（`dist/scene.js`、`dist/models.js`）
 
 - 渲染器只读状态，不写回模拟；每帧不要新建对象，场景物件用 InstancedMesh 或对象池。
+- 翻滚角度用模拟进度加 `accumulator` 的不足一步时间连续呈现；暂停时保留已显示的进度，避免清空累积时间造成倒跳。喷气材质在开始按钮启用前预热，透明双面气雾用 `forceSinglePass` 减少绘制。
 - 后视镜是车内镜：按 `#mirror-view` 的矩形用 scissor 视口单独渲染，并把整个场景 `scale.x = -1` 做左右镜像（这样 three.js 的面剔除和光照仍然正确），渲染完立刻恢复。镜像渲染时隐藏玩家车、玩家阴影和风线。
 - 车辆按 `model` 分池复用；刹车灯（`flash` 时频闪）、转向灯/双闪、失控车的闪灯都由模拟里的 `brake` / `flash` / `signal` / `hazard` / `horn` 驱动。急刹时车头下沉（视图自己平滑的 `pitch`）。
-- 崴脚的 MPV 每帧调用 `userData.setBroken(index, amount)`，`amount` 由 `clock - brokenAt` 在 0.3 s 内从 0 到 1；复用到正常车时用 `amount = 0` 复原。拖地时断轮一角向后喷火花。MPV 视图自带一个三角警示牌，只在 `triangle` 为 true 时显示，放在车后 32 m。
+- 崴脚的 M9 每帧调用 `userData.setBroken(index, amount)`，`amount` 由 `clock - brokenAt` 在 0.3 s 内从 0 到 1；复用到正常车时用 `amount = 0` 复原。拖地时按模型对应轮位向后喷火花。M9 视图自带一个三角警示牌，只在 `triangle` 为 true 时显示，放在车后 32 m。
 - 玩家影子落在 `floor` 上（站在货车上时在车厢顶）。
+- 侧翻以车身中心为轴，起止平滑加减速、侧向喷气交叠切换；车身在 `altitude` 上叠加平滑抬升，中段保持平稳，避免落上货车时因 `floor` 改变而跳动；碰撞高度、HUD 和镜头仍读模拟的 `altitude`。
 - 矮屏（高度 < 844px）由 compact 镜头逻辑压低视角，保证玩家车留在底部操作区上方。改镜头后至少检查 390×844 和 375×667。
-- 模型接口：`createSedan({color, braking})`、`createSUV()`、`createMPV()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；轿车和货车车头的 `userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，`userData.setBroken` 用于崴脚姿态。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。货车的静态部件按材质合并成一个网格，几何体在所有复用的实例之间共享，场景不要 dispose 它们。
+- 模型接口：`createSedan({color, braking})`、`createSUV()`、`createMPV()`、`createM9()`、`createTruck()`、`createSemi()`、`createTriangle()`；车辆的 `userData.wheels` 用于转轮；`userData.hazardLights` 是各自独立材质的琥珀色灯（按 `position.x` 的正负区分左右，兼作转向灯）；`userData.brakeLights` 是刹车灯（材质的 `userData.base` 是平时亮度）；`userData.paint` 用于复用时换色；MPV 的 `userData.headLight` 用于闪大灯，M9 的 `userData.setBroken` 用于崴脚姿态。货车的车厢顶必须是正好 3.9 m 高的平面，和模拟里的 `BODY` 一致。货车的静态部件按材质合并成一个网格，几何体在所有复用的实例之间共享，场景不要 dispose 它们。
 
 ## 输入约定（`dist/app.js`）
 

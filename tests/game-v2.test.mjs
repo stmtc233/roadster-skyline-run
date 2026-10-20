@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Game,SPEED} from '../dist/game.js';
+import {Game,SPEED,AIR_LANE} from '../dist/game.js';
 import {drive} from './pilot.mjs';
 function run(g,s,hz=120){for(let i=0;i<Math.round(s*hz);i++)g.update(1/hz);}
 function game(){const g=new Game({autoSpawn:false,trafficEnabled:false});g.start();return g;}
@@ -12,6 +12,34 @@ function contactTime(g){const t=g.time;for(let i=0;i<8*120&&g.phase==='running';
 const KINDS=['front','rear','battery','breakdown','parked'];
 test('raised ceiling, fuel and exhaustion rearm',()=>{const g=game();g.setHeld(true);run(g,1.2);assert.equal(g.altitude,8);assert.ok(Math.abs(g.gas-70)<.1);run(g,5);assert.equal(g.altitude,0);assert.equal(g.thrusting,false);run(g,2);assert.ok(g.gas>50);g.setHeld(false);g.setHeld(true);run(g,.5);assert.ok(g.altitude>3);});
 test('lane changes interpolate and clamp at edges',()=>{const g=game();g.moveLane(1);run(g,.1);assert.ok(g.x>0&&g.x<4);run(g,.3);assert.equal(g.x,4);g.moveLane(1);run(g,.4);assert.equal(g.x,4);g.moveLane(-1);g.moveLane(-1);run(g,.7);assert.equal(g.x,-4);});
+test('each airborne lane change spends 25 gas once and completes its roll before another change',()=>{
+ const g=game();g.altitude=8;g.gas=80;
+ assert.equal(g.moveLane(1),true);assert.equal(g.gas,55);assert.equal(g.rollDirection,1);assert.equal(g.rollRemaining,AIR_LANE.duration);
+ assert.equal(g.moveLane(-1),false);assert.equal(g.gas,55);assert.equal(g.lane,1);
+ run(g,AIR_LANE.duration);assert.equal(g.x,4);assert.equal(g.rollRemaining,0);assert.equal(g.rollDirection,0);
+ assert.equal(g.moveLane(-1),true);assert.equal(g.lane,0);assert.equal(g.gas,30);assert.equal(g.rollDirection,-1);
+});
+test('airborne fuel checks reject insufficient gas, edges and invalid inputs without charging',()=>{
+ const g=game();g.altitude=8;g.gas=24.99;
+ assert.equal(g.moveLane(-1),false);assert.equal(g.lane,0);assert.equal(g.gas,24.99);assert.equal(g.rollRemaining,0);
+ for(const dir of [0,NaN,Infinity])assert.equal(g.moveLane(dir),false);
+ g.gas=60;g.lane=1;g.x=4;assert.equal(g.moveLane(1),false);assert.equal(g.gas,60);
+ g.pause();assert.equal(g.moveLane(-1),false);assert.equal(g.gas,60);
+});
+test('exactly 25 gas powers an air roll, then requires releasing thrust after exhaustion',()=>{
+ const g=game();g.altitude=8;g.gas=25;g.setHeld(true);
+ assert.equal(g.moveLane(-1),true);assert.equal(g.gas,0);assert.equal(g.exhausted,true);
+ run(g,2);assert.equal(g.x,-4);assert.equal(g.altitude,0);assert.ok(g.gas>0);assert.equal(g.thrusting,false);
+ g.setHeld(false);g.setHeld(true);run(g,.1);assert.ok(g.altitude>0);
+});
+test('ground and truck-roof lane changes remain free, and an air roll freezes on pause and resets on restart',()=>{
+ const g=game();g.gas=0;assert.equal(g.moveLane(1),true);assert.equal(g.gas,0);assert.equal(g.rollRemaining,0);
+ const h=game();h.addTraffic(0,0,h.speed/3.6,'truck');h.altitude=3.9;h.gas=10;
+ assert.equal(h.moveLane(-1),true);assert.equal(h.gas,10);assert.equal(h.rollRemaining,0);
+ const a=game();a.altitude=8;a.moveLane(1);run(a,.1);a.pause();const frozen=[a.rollRemaining,a.gas,a.x,a.altitude];run(a,1);
+ assert.deepEqual([a.rollRemaining,a.gas,a.x,a.altitude],frozen);a.resume();run(a,.4);assert.equal(a.rollRemaining,0);
+ a.moveLane(-1);a.start();assert.equal(a.rollRemaining,0);assert.equal(a.rollDirection,0);assert.equal(a.gas,100);
+});
 test('pause freezes movement/fuel/score and resume releases input',()=>{const g=game();g.setHeld(true);g.moveLane(1);run(g,.1);g.pause();const a=[g.distance,g.gas,g.x,g.altitude];run(g,10);assert.deepEqual([g.distance,g.gas,g.x,g.altitude],a);g.resume();run(g,1);assert.ok(g.distance>a[0]);assert.equal(g.held,false);});
 test('faster distance scoring is frame-rate independent',()=>{const a=[30,60,120].map(h=>{const g=game();run(g,10,h);return g;});for(const g of a){assert.ok(g.distance>350);assert.ok(g.speed>140&&g.speed<300);assert.equal(g.score,Math.floor(g.distance/10));}assert.ok(Math.abs(a[0].distance-a[2].distance)<.01);});
 test('speed launches briskly and builds toward top speed',()=>{const g=game();assert.equal(g.speed,SPEED.start);assert.equal(g.pace,0);run(g,10);assert.ok(g.speed>210);run(g,10);assert.ok(g.speed>260);run(g,40);assert.ok(g.speed>360&&g.speed<SPEED.top);assert.ok(g.pace>.85&&g.pace<1);});
@@ -62,10 +90,10 @@ test('emergency braking flashes the brake lights, then they stay steady while th
  for(let i=0;i<120*4&&car.speed>car.brakeTo+1e-6;i++)g.update(1/120);
  run(g,.1);assert.ok(car.brake&&!car.flash);
 });
-test('a snapped suspension drags the MPV to a stop with hazards on, pulling toward the edge without leaving its lane',()=>{
+test('a snapped suspension drags the M9 to a stop with hazards on, pulling toward the edge without leaving its lane',()=>{
  for(const lane of [-1,0,1]){
   const g=game();g.moveLane(lane);run(g,.5);const e=g.spawn('breakdown'),mpv=g.traffic.find(c=>c.id===e.carId);
-  run(g,1/120);assert.equal(mpv.mode,'broken');assert.ok(mpv.hazard&&mpv.brake&&!mpv.flash);
+  assert.equal(mpv.model,'m9');run(g,1/120);assert.equal(mpv.mode,'broken');assert.ok(mpv.hazard&&mpv.brake&&!mpv.flash);
   const side=mpv.broken%2===0?1:-1;if(lane)assert.equal(side,lane,'the outer wheel breaks, so it pulls toward the road edge');
   const speed=mpv.speed;run(g,.5);assert.ok(Math.abs(speed-mpv.speed-4)<.1,'drags down hard');
   g.moveLane(lane?-lane:1);run(g,4);
@@ -73,12 +101,18 @@ test('a snapped suspension drags the MPV to a stop with hazards on, pulling towa
   assert.ok(Math.abs(mpv.x-(lane?lane*5.3:side*.9))<1e-6,`lane ${lane} rests at ${mpv.x}`);
  }
 });
+test('only an M9 already leading the player lane can become a live suspension failure',()=>{
+ const g=game(),m9=g.addTraffic(0,160,27,'m9'),mpv=g.addTraffic(1,170,27,'mpv');
+ assert.deepEqual(g.candidates('breakdown'),[m9]);g.lane=1;assert.deepEqual(g.candidates('breakdown'),[]);
+ g.lane=0;g.addTraffic(0,80,27,'sedan');assert.deepEqual(g.candidates('breakdown'),[]);
+ assert.equal(mpv.model,'mpv');assert.equal(m9.length,5.23);
+});
 test('a roadside breakdown waits in the haze half on the road edge, and drivers in that lane go around it',()=>{
  for(let seed=1;seed<=5;seed++){
   const g=new Game({autoSpawn:false,random:seeded(seed)});g.start();g.traffic=[];g.nextTraffic=Infinity;g.time=30;g.update(1/120);
   g.moveLane(1);run(g,.5);
   const e=g.park(1,-Infinity),car=g.traffic.find(c=>c.id===e.carId);
-  assert.ok(car.z>=215&&car.speed===0&&car.triangle&&car.hazard&&!car.brake);assert.equal(car.x,5.3);assert.equal(car.broken,4,'the outer rear wheel has collapsed');
+  assert.equal(car.model,'m9');assert.ok(car.z>=215&&car.speed===0&&car.triangle&&car.hazard&&!car.brake);assert.equal(car.x,5.3);assert.equal(car.broken,4,'the outer rear wheel has collapsed');
   assert.ok(e.contactAt-g.clock>=3.4,'at least as much warning as its cue');
   const v=g.speed/3.6,follower=g.addTraffic(1,40,v*.7);g.moveLane(-1);
   run(g,7);assert.notEqual(follower.mode,'crashed',`seed ${seed}`);assert.notEqual(follower.lane,1,`seed ${seed}`);
