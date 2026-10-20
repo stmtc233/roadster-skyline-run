@@ -71,7 +71,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 - 起飞按钮和滑动变道各自跟踪独立的指针，按住飞行时可以另一根手指滑动；松开起飞不能取消另一根手指的滑动。
 - `pointercancel`、`lostpointercapture`、窗口失焦、切到后台都会暂停；继续时倒数 3 秒。
 - 模式只在开始页切换，重开保留模式。`localStorage` 的 `roadster-mode` 保存选择，`roadster-best-normal` / `roadster-best-jet` 分别记成绩；旧 `roadster-best` 只用于读取喷气模式的历史成绩。静音和危险提示仍用 `roadster-muted`、`roadster-hints`。`roadster-music` 单独保存音乐开关（默认 `1` 开启）；不与音效静音联动。所有存储读写包在 try/catch 中，存储不可用时游戏照常运行。
-- BGM 是 `dist/audio/bgm.mp3`，约 1.50 MB 的 64 kbps / 32 kHz 立体声完整 MP3，使用独立 HTMLAudioElement 循环播放，音量 `.45`，`preload="none"` 按需加载；不接入音效 master。主页右上角的圆形 `#music` 按钮位于 `#sound` 下方，其他阶段隐藏。只在用户点击开始或音乐开关后解锁，不强行自动播放。`phase()` 和窗口前后台事件统一通过 `syncMusic()` 控制暂停，继续倒数期间保持暂停；不要在动画帧里调用 `play()`。播放拒绝应被捕获，音频失败不影响游戏。
+- BGM 用独立 HTMLAudioElement，子 `<source>` 优先选 `dist/audio/bgm.webm`（Opus 32 kbps 受限 VBR / 48 kHz 立体声，约 817 KB），备用 `dist/audio/bgm.m4a`（AAC-LC 40 kbps / 32 kHz 立体声，约 991 KB，faststart）；两份都是约 3 分 7 秒的完整曲目。不要再添加音频元素的 `src` 属性，它会覆盖子 source 的格式选择。正常只下载浏览器支持的一个来源，`preload="none"` 按需加载，循环播放、音量 `.45`，不接入音效 master。主页右上角的圆形 `#music` 按钮位于 `#sound` 下方，其他阶段隐藏。只在用户点击开始或音乐开关后解锁，不强行自动播放。`phase()` 和窗口前后台事件统一通过 `syncMusic()` 控制暂停，继续倒数期间保持暂停；不要在动画帧里调用 `play()`。播放拒绝应被捕获，音频失败不影响游戏。
 
 ## 测试注意事项
 

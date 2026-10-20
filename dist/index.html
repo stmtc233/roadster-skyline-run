@@ -20,7 +20,10 @@
     </aside>
     <section id="game-shell" class="game-shell" aria-label="公路飞跃游戏" data-phase="ready">
       <canvas id="world" aria-label="白天高速公路三维游戏画面"></canvas>
-      <audio id="bgm" src="./audio/bgm.mp3" preload="none" loop></audio>
+      <audio id="bgm" preload="none" loop>
+        <source src="./audio/bgm.webm" type='audio/webm; codecs="opus"'>
+        <source src="./audio/bgm.m4a" type='audio/mp4; codecs="mp4a.40.2"'>
+      </audio>
       <div class="scene-shade"></div>
       <div id="loading" class="loading"><span class="loader"></span><span>正在准备公路…</span></div>
       <div class="hud" id="hud">
