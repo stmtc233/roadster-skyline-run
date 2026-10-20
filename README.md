@@ -39,7 +39,7 @@ Three.js 固定为 0.180.0，统一在 `dist/index.html` 的 import map 中配�
 - `dist/game.js`：固定步长模拟、起降与燃料、危险生成和碰撞。
 - `dist/scene.js`、`dist/models.js`：三维场景、车辆和后视镜。
 - `dist/app.js`、`dist/audio.js`：触屏界面、暂停、记录和声音。
-- `dist/audio/bgm.mp3`：从用户提供的视频提取的完整音轨，约 3 分 7 秒、128 kbps 立体声 MP3，约 3 MB；头尾加入短淡入淡出。音频随静态网站一起部署，无须外部音乐服务。
+- `dist/audio/bgm.webm`：从用户提供的音频提取的完整音轨，约 3 分 7 秒、Opus 单声道（32 kbps），约 0.87 MB；头尾加入短淡入淡出。音频随静态网站一起部署，无须外部音乐服务。
 - `dist/vendor/THREE-LICENSE.txt`：Three.js 的 MIT 许可证。
 - `tests/game-v2.test.mjs`、`tests/modes.test.mjs`、`tests/su7.test.mjs`：游戏规则、模式与 SU7 车流测试，运行 `npm test`。
 
