@@ -110,7 +110,7 @@ python -m http.server 4173 --bind 127.0.0.1 --directory dist
 
 部署时将 **`dist/` 目录中的全部内容**上传到静态网站托管服务，并保留相对目录结构。无需后端服务和构建步骤。
 
-浏览器需要支持 WebGL 2。Three.js 固定为 **0.180.0**，通过国内 [BootCDN](https://www.bootcdn.cn/three.js/) 加载，运行时需联网；主模块地址在 `dist/index.html` 的 import map 中配置。采用官方压缩发行文件，两个库文件合计约 720 KB（解压后的脚本体积），并提前并行预加载。音乐仍按需加载，首页、暂停和结算画面在静止时停止重复绘制。
+浏览器需要支持 WebGL 2。Three.js 固定为 **0.180.0**，通过国内 [BootCDN](https://www.bootcdn.cn/three.js/) 加载，运行时需联网；主模块和依赖统一在 `dist/index.html` 的 import map 中配置。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -152,15 +152,6 @@ node tests/music.browser.mjs
 ```
 
 默认检查 `http://127.0.0.1:4173/`，可用环境变量 `GAME_URL` 指向其他服务，用 `CHROMIUM_EXECUTABLE_PATH` 指定现有 Chromium。
-
-同一 Playwright 环境还可运行加载和静止页面回归：
-
-```shell
-node tests/performance.browser.mjs
-node tests/loading.browser.mjs
-```
-
-前者检查首载脚本小于 900 KB、音乐按需加载、无重复模块请求，以及手机尺寸下的静止重绘和操作恢复。后者以 1.6 Mbps 下载、100 ms 延迟、禁用缓存运行三次，输出首次内容绘制（FCP）和开始按钮就绪时间；设置 `LOAD_REPORT` 可保存 JSON。计时使用真实 CDN，需联网；不同设备和网络不可直接比较。
 
 浏览器验证使用桌面 Chromium 的手机尺寸模拟，覆盖双指操作、侧翻、尾喷与尾翼、混合慢车队列、分阶段音乐音量、撞车停音与结算续播、暂停续播与重开、音乐循环、独立声音开关、关闭音乐时无音频请求、底部链接布局等。音频通过全曲严格解码，AAC 回退通过模拟首选格式不受支持的场景检查，音频缺失也不阻塞结算。真实手机性能和 Safari 真机播放仍需单独测试。
 
