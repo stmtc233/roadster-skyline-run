@@ -13,7 +13,7 @@ const music=new BackgroundMusic($('bgm'),read('roadster-music','1')==='1');
 // Each hazard type is explained once, the first time the player meets it; after that only the road shows it.
 const seenHints=new Set(read('roadster-hints','').split(',').filter(Boolean));
 let scene, activePointer=null, lastWarning=0, hintUntil=0, lastTime=0, resumeTimer=null, countdownToken=0;
-let stage='ready', ended=false, swipe=null, laneNotice='', laneNoticeUntil=0, backgrounded=false;
+let stage='ready', ended=false, swipe=null, laneNotice='', laneNoticeUntil=0, backgrounded=false, needsRender=true;
 const ui={distance:$('distance'),score:$('score'),speed:$('speed'),gas:$('gas-number'),fill:$('gas-fill'),meter:$('gas-meter'),gasNote:$('gas-note'),altitude:$('altitude'),hint:$('hint'),hintText:$('hint-text'),mirror:$('mirror-frame'),feedback:$('feedback'),flight:$('flight-state'),thrust:$('thrust')};
 
 function refreshBest(){
@@ -26,7 +26,7 @@ function refreshBest(){
 }
 function chooseMode(mode){
   if(stage!=='ready'||!Object.hasOwn(MODES,mode))return;
-  game.start(mode);game.phase='ready';write('roadster-mode',game.mode);refreshBest();renderHud();
+  game.start(mode);game.phase='ready';write('roadster-mode',game.mode);refreshBest();renderHud();needsRender=true;
 }
 function syncSound(){const b=$('sound');b.classList.toggle('muted',audio.muted);b.setAttribute('aria-label',audio.muted?'开启音效':'关闭音效');b.querySelector('span').textContent=audio.muted?'音效关闭':'音效开启';}
 function syncMusic(restart=false){
@@ -34,7 +34,7 @@ function syncMusic(restart=false){
   const b=$('music');b.classList.toggle('muted',!music.enabled);b.setAttribute('aria-checked',String(music.enabled));b.setAttribute('aria-label',music.enabled?'关闭背景音乐':'开启背景音乐');$('music-state').textContent=music.enabled?'背景音乐开启':'背景音乐关闭';
   b.title=$('bgm').error?'音乐暂不可用 · 可继续游戏':music.enabled?'背景音乐：开启':'背景音乐：关闭';
 }
-function phase(value,restart=false){stage=value;swipe=null;$('game-shell').dataset.phase=value;syncMusic(restart);}
+function phase(value,restart=false){stage=value;swipe=null;needsRender=true;$('game-shell').dataset.phase=value;syncMusic(restart);}
 function release(){activePointer=null;game.setHeld(false);ui.thrust.classList.remove('pressed');}
 function cancelCountdown(){countdownToken++;clearTimeout(resumeTimer);resumeTimer=null;$('countdown').hidden=true;}
 function start(){
@@ -132,21 +132,28 @@ document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();re
 document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();syncMusic();});
 window.addEventListener('blur',()=>{backgrounded=true;pause();syncMusic();});window.addEventListener('focus',()=>{backgrounded=false;syncMusic();});
 document.addEventListener('contextmenu',e=>{if(e.target.closest('#game-shell'))e.preventDefault();});
-window.addEventListener('resize',()=>scene?.resize());
+window.addEventListener('resize',()=>{scene?.resize();needsRender=true;});
 $('world').addEventListener('webglcontextlost',e=>{e.preventDefault();pause();$('error-text').textContent='图形画面已暂停，请重新加载继续。';$('error').hidden=false;});
 
 function animate(now){
   const dt=lastTime?Math.min((now-lastTime)/1000,.1):0;lastTime=now;
-  game.update(dt);
-  // On impact the controls drop away while the wreck slides; the result appears once it settles.
-  if(game.phase==='over'&&stage==='running'){release();phase('over');}
-  for(const cue of game.cues.splice(0))audio.cue(cue);renderHud();audio.update(game);
-  if(game.phase==='over'&&game.settled)finish();
-  scene.render(game,dt);requestAnimationFrame(animate);
+  // Static screens retain the last frame. Mode changes, transitions and resize invalidate it.
+  const moving=game.phase==='running'||(game.phase==='over'&&stage!=='result');
+  if(!document.hidden&&(moving||needsRender)){
+    needsRender=false;game.update(dt);
+    // On impact the controls drop away while the wreck slides; the result appears once it settles.
+    if(game.phase==='over'&&stage==='running'){release();phase('over');}
+    for(const cue of game.cues.splice(0))audio.cue(cue);renderHud();audio.update(game);
+    if(game.phase==='over'&&game.settled)finish();
+    scene.render(game,dt);
+  }
+  requestAnimationFrame(animate);
 }
 refreshBest();syncSound();syncMusic();
 try {
   const {createScene}=await import('./scene.js');scene=createScene($('world'));await scene.ready;scene.resize();
+  // Upload and draw the initial scene before offering an enabled start button.
+  scene.render(game,0);renderHud();needsRender=false;
   $('loading').hidden=true;$('start').disabled=false;refreshBest();
   requestAnimationFrame(animate);
 } catch(error){

@@ -6,7 +6,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 
 - 测试：`npm test`（即 `node --test tests/*.test.mjs`，Node 22，无需 `npm install`）。
 - 本地运行：`npm run dev`，然后打开 http://127.0.0.1:4173/ 。ES 模块必须走 HTTP，不能直接双击 HTML。
-- Three.js 固定为 0.180.0，只在 `dist/index.html` 的 import map 里配置，从 BootCDN 加载（`three.module.js` 和它引用的 `three.core.js`）。升级时两者必须同源、同版本。
+- Three.js 固定为 0.180.0，只在 `dist/index.html` 的 import map 里配置，从 BootCDN 加载压缩发行文件（`three.module.min.js` 和它引用的 `three.core.min.js`）。升级时两者必须同源、同版本；同步核对预加载的依赖文件名。
 - 访问不到 BootCDN 时（例如云端沙盒），可以在别处 `npm i three@0.180.0`，再用 Playwright 的 `page.route('https://cdn.bootcdn.net/**', …)` 把请求转到本地 `node_modules/three/build/`。不要为了测试去改 import map。
 
 ## 模块分工
@@ -23,6 +23,8 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 | `tests/su7.test.mjs` | SU7 车流占比、蓝色车漆及不同模式和帧率下的碰撞、飞越测试 |
 | `tests/slow-row.test.mjs` | 三车并排生成、同步减速、解散、飞越及混合车流生存测试 |
 | `tests/music.browser.mjs` | 可选 Playwright 真实媒体回归，覆盖音乐阶段、格式回退、重开、前后台及按需加载；不在 `npm test` 中运行 |
+| `tests/performance.browser.mjs` | 可选 Playwright 回归：首载脚本体积、无重复下载、静止页停止重绘、切模式/缩放/暂停恢复/结算重开；不在 `npm test` 中运行 |
+| `tests/loading.browser.mjs` | 可选 Playwright 限速冷启动基准，禁用缓存后取三次 FCP 和开始按钮就绪时间中位数；用真实 CDN，不在 `npm test` 中运行 |
 | `tests/pilot.mjs` | 测试用的前瞻自动驾驶，用于生存测试 |
 
 ## 模拟约定（`dist/game.js`）
@@ -69,6 +71,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 
 ## 输入约定（`dist/app.js`）
 
+- 首页、暂停、倒数和结算保留已绘制的画面；`needsRender` 由模式选择、阶段切换和 resize 置位。行驶和撞车滑行继续逐帧更新；新加会改变静止场景的操作也要置位。开始按钮在材质预热和首次绘制后启用。
 - 起飞按钮和滑动变道各自跟踪独立的指针，按住飞行时可以另一根手指滑动；松开起飞不能取消另一根手指的滑动。
 - `pointercancel`、`lostpointercapture`、窗口失焦、切到后台都会暂停；继续时倒数 3 秒。
 - 模式只在开始页切换，重开保留模式。`localStorage` 的 `roadster-mode` 保存选择，`roadster-best-normal` / `roadster-best-jet` 分别记成绩；旧 `roadster-best` 只用于读取喷气模式的历史成绩。静音和危险提示仍用 `roadster-muted`、`roadster-hints`。`roadster-music` 单独保存音乐开关（默认 `1` 开启）；不与音效静音联动。所有存储读写包在 try/catch 中，存储不可用时游戏照常运行。
