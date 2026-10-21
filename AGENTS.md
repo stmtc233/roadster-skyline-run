@@ -6,7 +6,8 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 
 - 测试：`npm test`（即 `node --test tests/*.test.mjs`，Node 22，无需 `npm install`）。
 - 本地运行：`npm run dev`，然后打开 http://127.0.0.1:4173/ 。ES 模块必须走 HTTP，不能直接双击 HTML。
-- Three.js 固定为 0.180.0，只在 `dist/index.html` 的 import map 里配置，从 BootCDN 加载（`three.module.js` 和它引用的 `three.core.js`）。升级时两者必须同源、同版本。
+- Three.js 固定为 0.180.0，从 BootCDN 加载 min 版（`three.module.min.js` 和它引用的 `three.core.min.js`）。地址写在 `dist/index.html` 的 import map 和两条 modulepreload 里，升级时三处必须同源、同版本，modulepreload 的地址要和 import map 解析出的完全一致，否则会重复下载。BootCDN 目前以 `no-store` 返回且不做 gzip 压缩，每次打开都会重新下载，不要换回非 min 版。
+- 加载：`index.html` 的 `<head>` 用 modulepreload 并行拉取 Three.js 和 `app.js` 之后的全部本地模块（包括动态导入的 `scene.js`），避免逐层发现依赖的串行请求。新增或删除本地模块时同步修改这份列表，`tests/loading.test.mjs` 会检查。
 - 访问不到 BootCDN 时（例如云端沙盒），可以在别处 `npm i three@0.180.0`，再用 Playwright 的 `page.route('https://cdn.bootcdn.net/**', …)` 把请求转到本地 `node_modules/three/build/`。不要为了测试去改 import map。
 
 ## 模块分工
@@ -23,6 +24,7 @@ Roadster · 公路飞跃：手机竖屏的 Three.js 无尽公路小游戏。纯�
 | `tests/su7.test.mjs` | SU7 车流占比、蓝色车漆及不同模式和帧率下的碰撞、飞越测试 |
 | `tests/slow-row.test.mjs` | 三车并排生成、同步减速、解散、飞越及混合车流生存测试 |
 | `tests/music.browser.mjs` | 可选 Playwright 真实媒体回归，覆盖音乐阶段、格式回退、重开、前后台及按需加载；不在 `npm test` 中运行 |
+| `tests/loading.test.mjs` | 加载配置检查：import map 指向 min 版 Three.js，Three.js 两个文件和全部本地模块都已 modulepreload |
 | `tests/pilot.mjs` | 测试用的前瞻自动驾驶，用于生存测试 |
 
 ## 模拟约定（`dist/game.js`）

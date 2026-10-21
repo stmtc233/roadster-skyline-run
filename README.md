@@ -110,7 +110,9 @@ python -m http.server 4173 --bind 127.0.0.1 --directory dist
 
 部署时将 **`dist/` 目录中的全部内容**上传到静态网站托管服务，并保留相对目录结构。无需后端服务和构建步骤。
 
-浏览器需要支持 WebGL 2。Three.js 固定为 **0.180.0**，通过国内 [BootCDN](https://www.bootcdn.cn/three.js/) 加载，运行时需联网；主模块和依赖统一在 `dist/index.html` 的 import map 中配置。
+浏览器需要支持 WebGL 2。Three.js 固定为 **0.180.0**，通过国内 [BootCDN](https://www.bootcdn.cn/three.js/) 加载 min 版（`three.module.min.js` 与 `three.core.min.js`，共约 720 KB），运行时需联网；地址统一在 `dist/index.html` 的 import map 和 modulepreload 中配置。
+
+页面在 `<head>` 中预加载 Three.js 和全部游戏脚本，它们与样式表同时开始下载，不必等上一层脚本下载完才发现下一层依赖。BootCDN 目前对这两个文件既不做 gzip 压缩，也不允许浏览器缓存，所以每次打开都会完整下载；换成 min 版后，下载量比原来的完整版（约 2.0 MB）少 64%。
 
 | 文件 | 职责 |
 | --- | --- |
@@ -119,7 +121,7 @@ python -m http.server 4173 --bind 127.0.0.1 --directory dist
 | [dist/scene.js](dist/scene.js)、[dist/models.js](dist/models.js) | Three.js 场景、车辆、喷气与尾翼动画 |
 | [dist/app.js](dist/app.js) | 输入、模式选择、暂停、存储与界面更新 |
 | [dist/audio.js](dist/audio.js)、[dist/audio/](dist/audio/) | 游戏音效与独立背景音乐 |
-| [tests/](tests/) | 游戏规则测试及前瞻自动驾驶测试工具 |
+| [tests/](tests/) | 游戏规则测试、加载配置检查及前瞻自动驾驶测试工具 |
 | [AGENTS.md](AGENTS.md) | 模块约定、开发与验证注意事项 |
 | [THREE-LICENSE.txt](dist/vendor/THREE-LICENSE.txt) | Three.js 的 MIT 许可证 |
 
@@ -133,13 +135,14 @@ python -m http.server 4173 --bind 127.0.0.1 --directory dist
 npm test
 ```
 
-当前共 **64 项规则测试**，无须安装依赖，覆盖：
+当前共 **66 项测试**，无须安装依赖，覆盖：
 
 - 两种模式的车速、计分、暂停、重开和不同帧率下的一致性。
 - 五种危险的预警、碰撞、飞越与变道避让，以及货车顶落脚。
 - 空中变道扣气、翻滚锁定、气量耗尽及每秒回气 20 的规则。
 - 普通车流比例、并线、事故车，以及并排慢车的生成、刹车距离、等待与解散。
 - 多组随机车流的自动驾驶生存检查，以及 30 / 60 / 120 Hz 顶速碰撞防穿透。
+- 页面加载配置：使用 min 版 Three.js，Three.js 与全部本地模块都已预加载。
 
 开发时另做过两种模式共 24 局、每局 5 分钟的随机自动驾驶抽查，全部存活，共生成 124 组并排慢车。
 
