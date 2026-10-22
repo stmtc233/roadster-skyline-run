@@ -87,7 +87,7 @@ test('the brake-failure car honks, then crashes into the car ahead and both slid
  let impactSpeed=0;
  for(let i=0;i<120*8&&runaway.mode!=='crashed';i++)g.update(1/120);
  assert.equal(runaway.mode,'crashed');assert.equal(ahead.mode,'crashed');assert.ok(runaway.hazard&&ahead.hazard&&!runaway.horn);
- impactSpeed=ahead.speed;run(g,1);assert.ok(Math.abs(impactSpeed-ahead.speed-6.5)<.1,'slides down at a steady rate rather than stopping dead');
+ impactSpeed=ahead.speed;run(g,.5);const halfSpeed=ahead.speed;run(g,.5);assert.ok(ahead.speed>0&&ahead.speed<halfSpeed&&halfSpeed<impactSpeed,'impact is followed by sliding friction');assert.ok(Math.abs((impactSpeed-halfSpeed)-(halfSpeed-ahead.speed))<.1,'friction slows the wreck steadily');
  assert.ok(Math.abs(ahead.z-runaway.z)>=(ahead.length+runaway.length)/2-.05,'wrecks touch but never overlap');
  assert.equal(g.phase,'running');assert.equal(g.dodged,1);
  const h=game(),wreck=h.addTraffic(1,120,20);h.wreck(wreck,.5);run(h,3.5);assert.equal(wreck.speed,0);assert.equal(wreck.spin,0);assert.ok(wreck.yaw>0);
@@ -169,19 +169,19 @@ test('the player crash slides on before the result settles',()=>{
  assert.equal(g.phase,'over');assert.equal(g.settled,false);
  const distance=g.distance,travel=g.travel;run(g,.5);
  assert.equal(g.distance,distance);assert.ok(g.travel>travel,'the wreck keeps sliding');assert.ok(g.speed<g.maxSpeed);
- run(g,1.2);assert.equal(g.settled,true);const rest=g.travel;run(g,1);assert.equal(g.travel,rest);
+ run(g,4);assert.equal(g.settled,true);assert.equal(g.speed,0,'result settles only once the player stops');const rest=g.travel;run(g,1);assert.equal(g.travel,rest);
 });
 test('ordinary traffic exists and can collide during lane changes',()=>{const g=new Game({mode:'jet',autoSpawn:false});g.start();assert.ok(g.traffic.length>=3);const h=game();h.addTraffic(1,0,120/3.6);h.moveLane(1);run(h,.4);assert.equal(h.phase,'over');});
 test('early danger and restart reset',()=>{const g=new Game({mode:'jet'});g.start();run(g,1.6);assert.ok(g.events.length);g.moveLane(1);g.setHeld(true);g.start();assert.equal(g.x,0);assert.equal(g.lane,0);assert.equal(g.gas,100);assert.equal(g.held,false);assert.equal(g.distance,0);assert.equal(g.traffic.every(c=>c.mode==='cruise'),true);});
 test('live hazards come from traffic already on the road, and new cars only appear far ahead',()=>{
  const g=new Game({mode:'jet',random:seeded(7)});g.start();const kinds=new Set(),opening=new Set(g.traffic.map(c=>c.id)),firstZ=new Map();
- // Body lengths change following and lane-choice timing; allow three minutes to exercise all five live hazards.
- for(let i=0;i<1800&&g.phase==='running';i++){
+ // The pole event also needs a visible outer-lane M9; allow ten minutes to cover all six hazards.
+ for(let i=0;i<6000&&g.phase==='running';i++){
   drive(g,.1);
   for(const c of g.traffic)if(!firstZ.has(c.id)){firstZ.set(c.id,c.z);if(!opening.has(c.id))assert.ok(c.z>200||(c.role==='rear'&&c.z<0),`car ${c.id} appeared at ${c.z.toFixed(0)} m`);}
   for(const e of g.events){kinds.add(e.kind);if(e.kind!=='rear')assert.ok(opening.has(e.carId)||firstZ.get(e.carId)>200,`${e.kind} used car ${e.carId}, first seen at ${firstZ.get(e.carId)?.toFixed(0)} m`);}
  }
- assert.equal(g.phase,'running',g.cause);assert.deepEqual([...kinds].sort(),[...KINDS].sort());
+ assert.equal(g.phase,'running',g.cause);assert.deepEqual([...kinds].sort(),[...KINDS,'pole'].sort());
 });
 test('attentive lane pilot survives varied high-speed traffic, and emergency braking is the most common hazard',()=>{
  const kinds={};
@@ -190,8 +190,8 @@ test('attentive lane pilot survives varied high-speed traffic, and emergency bra
   for(let s=0;s<180&&g.phase==='running';s++){drive(g,1);for(const e of g.events)if(e.stage!=='planned'&&!seen.has(e.id)){seen.add(e.id);kinds[e.kind]=(kinds[e.kind]||0)+1;}}
   assert.equal(g.phase,'running',`seed ${seed}, ${g.cause}`);assert.ok(g.dodged>20);
  }
- assert.deepEqual(Object.keys(kinds).sort(),[...KINDS].sort());
- for(const kind of KINDS)if(kind!=='front')assert.ok(kinds.front>kinds[kind],JSON.stringify(kinds));
+ assert.deepEqual(Object.keys(kinds).sort(),[...KINDS,'pole'].sort());
+ for(const kind of [...KINDS,'pole'])if(kind!=='front')assert.ok(kinds.front>kinds[kind],JSON.stringify(kinds));
 });
 test('top-speed collision cannot tunnel through obstacles at 30, 60 or 120 Hz',()=>{
  for(const kind of [...KINDS,'traffic']) {

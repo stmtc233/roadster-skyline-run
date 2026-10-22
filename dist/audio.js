@@ -94,6 +94,7 @@ export class AudioEngine {
     else if(type==='scrape'){this.tone(85,.3,0,.4*near);this.burst('bandpass',1500,1.8,.32*near);this.burst('bandpass',3400,1.2,.12*near);}
     else if(type==='eject'){this.burst('lowpass',900,.25,.3*near);this.tone(150,.2,0,.25*near);}
     else if(type==='crash'){this.burst('lowpass',1100,.55,.45*near);this.tone(70,.45,0,.35*near);}
+    else if(type==='ignite'){this.burst('lowpass',650,1.1,.24*near);this.burst('bandpass',2200,.7,.10*near);}
     else if(type==='impact'){this.burst('lowpass',1500,.9,.6);this.tone(60,.7,0,.45);this.tone(110,.5,.03,.3);}
   }
   burst(type,frequency,duration,level){

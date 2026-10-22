@@ -1,3 +1,4 @@
+import {collisionContact,collisionHeight,roofHeight,extentX,extentZ,bodyYaw,resolveImpact} from './collision.js';
 const STEP=1/120;
 const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 // Launch speed and the top speed each run accelerates toward (km/h); ramp is the time constant in seconds.
@@ -8,9 +9,12 @@ export const MODES=Object.freeze({
 });
 // One airborne lane change spends a fixed burst and completes a full roll in seconds.
 export const AIR_LANE=Object.freeze({gas:25,duration:.425});
+// Fixed world grid shared by the simulation and roadside renderer.
+export const POLE=Object.freeze({spacing:32,x:6,radius:.18,angle:.33,smokeDelay:.04,fireDelay:.08,cooldown:25});
 // Collision footprints in metres and masses in tonnes. Lane centres sit 4 m apart.
 // Trucks have a flat box roof (deck) at their height that the player can land on and drive across.
 const BODY={player:{width:1.9,length:4.6,mass:2},sedan:{width:1.85,length:4.6,height:1.45,mass:1.6},su7:{width:1.963,length:4.997,height:1.455,mass:1.98},suv:{width:2,length:4.8,height:1.9,mass:2.1},mpv:{width:2,length:5.5,height:1.92,mass:2.7},m9:{width:2,length:5.23,height:1.8,mass:2.6},truck:{width:2.5,length:12,height:3.9,mass:10,deck:true},semi:{width:2.55,length:16.5,height:3.9,mass:16,deck:true},battery:{width:1.8,length:1.8,height:.35,mass:.5}};
+const PLAYER={model:'player',...BODY.player,x:0,z:0,yaw:0,mode:'player',vx:0,speed:0,spin:0,poleHitAt:-1};
 const COLORS={su7:['#087fb7'],m9:['#174776','#295b76','#416b82','#174776'],truck:['#2f5f9e','#e2e1da','#d0a334','#3f7a5a'],semi:['#a73a2f','#e2e1da','#2f5f9e','#e07a1f']};
 const trafficModel=roll=>roll<.10?'suv':roll<.24?'mpv':roll<.37?'m9':roll<.46?'truck':roll<.52?'semi':roll<.60?'su7':'sedan';
 // Blinking time before a lane change (s), sideways speed (m/s), braking, pick-up, crash sliding and broken-suspension drag (m/s²), battery drop delay (s).
@@ -29,14 +33,14 @@ const WEIGHT={front:3,breakdown:12,battery:1.5};
 // The opening road already carries traffic, so the first hazards come from cars the player can see.
 const OPENING=[[-1,45,27,'su7'],[0,100,29,'sedan'],[1,130,30,'suv'],[-1,170,31,'sedan'],[1,215,31,'truck'],[0,250,31,'m9']];
 // Whether body o is in car c's path: c's lane now or the lane it is moving into, against where o is or is heading.
-const inPath=(c,o)=>{const lane=c.lane*4,heading=o.signal?o.lane*4:o.x;return Math.abs(o.x-c.x)<2.4||Math.abs(o.x-lane)<2.4||Math.abs(heading-c.x)<2.4||Math.abs(heading-lane)<2.4;};
+const inPath=(c,o)=>{const lane=c.mode==='crashed'?c.x:c.lane*4,heading=o.signal?o.lane*4:o.x,room=extentX(c)+extentX(o)+.2;return Math.abs(o.x-c.x)<room||Math.abs(o.x-lane)<room||Math.abs(heading-c.x)<room||Math.abs(heading-lane)<room;};
 // Reused result of Game#leader, read immediately by the caller.
 const LEAD={gap:0,speed:0,stopping:false};
 // Shown once per hazard type; afterwards the lights, horn and mirror carry the warning.
-export const HINTS=Object.freeze({front:'前车刹车灯狂闪急刹 · 变道或起飞',rear:'后方车辆刹车断裂 · 听喇叭、看后视镜',battery:'邻车双闪急停 · 小心弹出的电池',breakdown:'前车悬挂断裂 · 拖着火花急停',parked:'路边抛锚车占着车道 · 提前变道',truck:'大货车车厢顶可以落脚 · 起飞踩上去'});
+export const HINTS=Object.freeze({front:'前车刹车灯狂闪急刹 · 变道或起飞',rear:'后方车辆刹车断裂 · 听喇叭、看后视镜',battery:'邻车双闪急停 · 小心弹出的电池',breakdown:'前车悬挂断裂 · 拖着火花急停',pole:'前方车辆偏向路灯 · 注意避让事故车',parked:'路边抛锚车占着车道 · 提前变道',truck:'大货车车厢顶可以落脚 · 起飞踩上去'});
 export class Game {
  constructor({random=Math.random,autoSpawn=true,trafficEnabled=true,mode='normal'}={}){this.random=random;this.autoSpawn=autoSpawn;this.trafficEnabled=trafficEnabled;this.nextId=1;this.start(mode);this.phase='ready';}
- start(mode=this.mode){this.mode=Object.hasOwn(MODES,mode)?mode:'normal';const curve=this.speedCurve;Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:curve.start,maxSpeed:curve.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,rowAfter:15,rowUntil:0,accumulator:0,crashSpeed:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed*curve.start/SPEED.start,model);}
+ start(mode=this.mode){this.mode=Object.hasOwn(MODES,mode)?mode:'normal';const curve=this.speedCurve;Object.assign(this,{phase:'running',time:0,clock:0,distance:0,travel:0,score:0,speed:curve.start,maxSpeed:curve.start,gas:100,altitude:0,floor:0,x:0,lane:0,held:false,thrusting:false,exhausted:false,rollRemaining:0,rollDirection:0,events:[],traffic:[],batteries:[],cues:[],dodged:0,cause:'',nextEvent:1.4,nextTraffic:1.8,eventCount:0,lastKind:'',wanting:-1,parkAfter:0,poleAfter:8,rowAfter:15,rowUntil:0,accumulator:0,crashSpeed:0,crashLateral:0,crashDrag:9,playerVx:0,crashTime:0,settled:false,yaw:0,spin:0});if(this.trafficEnabled)for(const [lane,z,speed,model] of OPENING)this.addTraffic(lane,z,speed*curve.start/SPEED.start,model);}
  get speedCurve(){return MODES[this.mode];}
  // The rear jets power the jet-mode speed curve automatically, independently of flight gas.
  get boosting(){return this.mode==='jet'&&this.phase==='running';}
@@ -64,7 +68,7 @@ export class Game {
  get accel(){const s=this.speedCurve;return this.phase==='running'?(s.top-this.speed)/s.ramp/3.6:0;}
  // The newest live hazard, so a second one arriving mid-way still gets noticed.
  get warning(){const e=this.events.findLast(e=>!e.resolved&&e.stage!=='planned');return e?{id:e.id,kind:e.kind,stage:e.stage,text:HINTS[e.kind]}:null;}
- addTraffic(lane,z,speed,model='sedan'){const palette=COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'],color=palette[Math.floor(this.random()*palette.length)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',row:false,brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0};this.traffic.push(o);return o;}
+ addTraffic(lane,z,speed,model='sedan'){const palette=COLORS[model]||['#497f9b','#c7c9c1','#a95442','#b7a16f'],color=palette[Math.floor(this.random()*palette.length)];const o={id:this.nextId++,model,deck:false,...BODY[model],lane,x:lane*4,vx:0,z,speed,cruise:speed,color,mode:'cruise',role:'',row:false,brake:false,flash:false,brakeTo:0,holdUntil:0,signal:0,moveAt:0,hazard:false,horn:false,closing:0,broken:0,brokenAt:0,drift:0,triangle:false,yaw:0,spin:0,odo:0,poleWorldZ:0,poleStart:0,poleDuration:0,poleFromX:0,poleHitAt:-1,crashedAt:-1,fireAt:-1,fireChecked:false,crashDrag:SLIDE,smoke:0,fire:0};this.traffic.push(o);return o;}
  // Bumper-to-bumper distance at which a body touches the player's car.
  reach(o){return (BODY.player.length+o.length)/2-.12;}
  // Metres the player closes on a hazard within `seconds` if nobody reacts, following the hazard's scripted speed.
@@ -120,6 +124,9 @@ export class Game {
   }
   const soonest=Math.min(...options.map(o=>o.wait)),ready=options.filter(o=>o.wait<=soonest+1);
   const fresh=ready.filter(o=>o.kind!==this.lastKind||o.kind==='front'),pool=fresh.length?fresh:ready,roll=this.random();
+  if(roll>=.08&&roll<.22&&this.time>=this.poleAfter){
+   for(const c of this.traffic){const e=this.veerToPole(c,earliest);if(e)return this.adopt(e);}
+  }
   // The runaway and the roadside breakdown are occasional extras, and fill in once nothing ahead has been ready for a while.
   if(!pool.length&&this.wanting<0)this.wanting=this.time;
   const idle=!pool.length&&this.time-this.wanting>=1.8;
@@ -130,6 +137,18 @@ export class Game {
   let pick=this.random()*total,kind=kinds[0];for(let i=0;i<kinds.length;i++)if((pick-=weights[i])<0){kind=kinds[i];break;}
   const {c}=pool.filter(o=>o.kind===kind).sort((a,b)=>a.wait-b.wait)[0];
   c.role=kind;return this.adopt(this.addEvent(kind,c));
+ }
+ // Claim an existing outer-lane M9 only when the full approach and ignition will be visible.
+ veerToPole(c,earliest=-Infinity){
+  if(c.model!=='m9'||!c.lane||c.mode!=='cruise'||c.signal||c.role||c.row||c.speed<8||Math.abs(c.x-c.lane*4)>.1||c.z<60||c.z>270)return null;
+  const nose=Math.cos(POLE.angle)*c.length/2+POLE.radius;
+  const world=Math.ceil((c.z+this.travel+nose+c.speed*.9)/POLE.spacing)*POLE.spacing;
+  const duration=(world-nose-c.z-this.travel)/c.speed,arrival=this.arrival(world-this.travel-nose-this.reach(c));
+  const impactDistance=world-this.travel-nose-this.speed/3.6*duration-this.accel*duration*duration/2;
+  if(impactDistance>150||arrival-duration<1.15||arrival>4.5||this.clock+arrival<earliest)return null;
+  if(this.traffic.some(o=>o!==c&&o.role==='pole'&&o.lane===c.lane&&o.poleWorldZ===world))return null;
+  Object.assign(c,{role:'pole',mode:'veering',hazard:true,poleWorldZ:world,poleStart:this.clock,poleDuration:duration,poleFromX:c.x});
+  const e=this.addEvent('pole',c);e.stage='active';this.armed(e,arrival);this.poleAfter=this.time+POLE.cooldown;this.cue('screech',c);return e;
  }
  adopt(e){this.lastKind=e.kind;this.wanting=-1;this.eventCount++;return e;}
  // What a lined-up car can do to the player from where they now are: brake (or break down) in front of them from the
@@ -168,7 +187,7 @@ export class Game {
  // before the player would reach it, so its turn signal always gives fair warning.
  laneClear(c,lane){
   const x=lane*4;
-  for(const o of this.traffic)if(o!==c&&(Math.abs(o.x-x)<2.6||o.lane===lane)&&Math.abs(o.z-c.z)<(o.length+c.length)/2+11.4+Math.abs(o.speed-c.speed)*2.5)return false;
+  for(const o of this.traffic)if(o!==c&&(Math.abs(o.x-x)<extentX(o)+c.width/2+.3||o.lane===lane)&&Math.abs(o.z-c.z)<extentZ(o)+extentZ(c)+11.4+Math.abs(o.speed-c.speed)*2.5)return false;
   for(const b of this.batteries)if(Math.abs(b.x-x)<2.6&&Math.abs(b.z-c.z)<30)return false;
   const mine=Math.abs(this.lane*4-x)<2.6||Math.abs(this.x-x)<2.6;
   return !mine||c.z<-12||c.z-this.reach(c)>(this.speed/3.6-c.speed)*MERGE;
@@ -177,7 +196,7 @@ export class Game {
  leader(c,v){
   let gap=Infinity,nearest=null;
   // Wrecks, loose batteries and cars braking to a halt are treated as already stopped, as a driver would.
-  for(const list of [this.traffic,this.batteries])for(const o of list)if(o!==c&&o.z>c.z&&inPath(c,o)){const g=o.z-c.z-(o.length+c.length)/2;if(g<gap){gap=g;nearest=o;}}
+  for(const list of [this.traffic,this.batteries])for(const o of list)if(o!==c&&o.z>c.z&&inPath(c,o)){const g=o.z-c.z-extentZ(o)-extentZ(c);if(g<gap){gap=g;nearest=o;}}
   if(nearest)Object.assign(LEAD,{gap,speed:nearest.speed,stopping:nearest.mode==='crashed'||nearest.mode==='broken'||nearest.mode==='loose'||(nearest.mode==='brake'&&nearest.brakeTo===0)});
   // The player counts only when low enough to hit; a car passing beneath a flying player, or carrying one on its roof, drives on.
   if(c.z<0&&this.altitude+.1<c.height&&(Math.abs(this.x-c.x)<2.4||Math.abs(this.x-c.lane*4)<2.4)){const g=-c.z-(BODY.player.length+c.length)/2;if(g<gap){gap=g;Object.assign(LEAD,{gap,speed:v,stopping:this.phase==='over'});}}
@@ -190,22 +209,40 @@ export class Game {
   this.accumulator+=Math.min(dt,.1);
   while(this.accumulator+1e-10>=STEP&&(this.phase==='running'||(this.phase==='over'&&!this.settled))){this.accumulator-=STEP;this.step(STEP);}
  }
- // Whether body o's footprint overlaps the player's, at any height.
- over(o){return Math.abs(o.x-this.x)<(1.9+o.width)/2-.14&&Math.abs(o.z)<(4.6+o.length)/2-.12;}
- hit(o){return this.over(o)&&this.altitude+.1<o.height;}
- // Height of the truck roof the player is on or coming down onto; anything lower than its top would be a hit instead.
- deck(){let top=0;for(const o of this.traffic)if(o.deck&&o.height>top&&this.altitude+.1>=o.height&&this.over(o))top=o.height;return top;}
+ // One borrowed player footprint is shared by collision and supporting-roof queries.
+ playerBody(){Object.assign(PLAYER,{x:this.x,z:0,yaw:this.phase==='over'?this.yaw:-(this.lane*4-this.x)*.025,vx:this.phase==='over'?this.crashLateral:this.playerVx,speed:this.phase==='over'?this.crashSpeed:this.speed/3.6,spin:this.spin});return PLAYER;}
+ applyPlayerImpact(player){
+  this.crashSpeed=player.speed;this.speed=player.speed*3.6;this.crashLateral=player.vx;this.x=player.x;this.spin=player.spin;this.yaw=player.yaw;
+  if(player.z){this.travel+=player.z;for(const o of this.traffic)o.z-=player.z;for(const b of this.batteries)b.z-=player.z;}
+ }
+ over(o){return !!collisionContact(this.playerBody(),o);}
+ hit(o){return this.altitude+.1<collisionHeight(this.playerBody(),o);}
+ deck(){let top=0;const player=this.playerBody();for(const o of this.traffic)if(o.deck)top=Math.max(top,roofHeight(player,o,this.altitude));return top;}
  // The two vehicles trade momentum and slide on before the result appears.
  crash(o,v){
+  const player=this.playerBody(),heading=bodyYaw(o);player.speed=v;
   this.phase='over';this.held=false;this.thrusting=false;
   const label=o.model==='battery'?'撞上弹出的电池':o.mode==='crashed'?'撞上事故车辆':o.role==='parked'?'撞上路边抛锚的车辆':o.mode==='broken'?'撞上悬挂断裂的车辆':o.role==='rear'?'被刹车失灵的后车追尾':o.role==='front'?'撞上急刹车辆':o.signal||o.vx?'撞上并线车辆':o.role==='battery'?'撞上急停车辆':o.deck?'撞上大货车':'撞上路人车辆';
   this.cause=(this.exhausted?'气量耗尽 · ':this.altitude>0?'注意起降高度 · ':'')+label;
-  const mass=o.mass??BODY.sedan.mass,m=BODY.player.mass+mass,closing=v-o.speed,u=(BODY.player.mass*v+mass*o.speed)/m,side=o.x>=this.x?1:-1;
-  this.crashSpeed=Math.max(0,u-.2*closing*mass/m);o.speed=Math.max(0,u+.2*closing*BODY.player.mass/m);
-  this.spin=-side*(.5+Math.min(1,Math.abs(closing)/30));this.crashTime=0;this.settled=false;
-  this.wreck(o,side*.8);this.cue('impact',o);
+  const contact=collisionContact(player,o);
+  const severity=contact?resolveImpact(player,o,contact):Math.abs(v-o.speed);
+  this.applyPlayerImpact(player);
+  this.crashDrag=Math.max(9,this.crashSpeed/3.5)+Math.min(4,severity*.08);this.speed=this.crashSpeed*3.6;
+  this.crashTime=0;this.settled=false;
+  this.wreck(o,o.spin,severity,heading);this.cue('impact',o);
  }
- wreck(c,spin){if(c.model==='battery'){c.hit=true;return;}if(c.mode!=='crashed')c.spin=spin;Object.assign(c,{mode:'crashed',hazard:true,flash:false,signal:0,horn:false,vx:0});}
+ wreck(c,spin,severity=null,heading=bodyYaw(c)){
+  if(c.model==='battery'){c.hit=true;return;}
+  if(c.mode!=='crashed'){
+   c.spin=spin;c.yaw=heading;c.crashedAt=this.clock;c.crashDrag=SLIDE+(severity===null?0:Math.min(4,severity*.08));
+   if(severity!==null&&!c.fireChecked){
+    c.fireChecked=true;
+    const chance=.38+clamp((severity-10)/30,0,1)*.32;
+    if(c.model==='m9'&&this.random()<chance)c.fireAt=this.clock;
+   }
+  }
+  Object.assign(c,{mode:'crashed',hazard:true,flash:false,signal:0,horn:false,brake:true});
+ }
  step(dt){
   this.clock+=dt;
   this.rollRemaining=Math.max(0,this.rollRemaining-dt);if(this.rollRemaining<1e-8){this.rollRemaining=0;this.rollDirection=0;}
@@ -213,20 +250,19 @@ export class Game {
   if(running){
    const s=this.speedCurve;this.time+=dt;this.speed=s.start+(s.top-s.start)*(1-Math.exp(-this.time/s.ramp));this.maxSpeed=Math.max(this.maxSpeed,this.speed);v=this.speed/3.6;
    this.distance+=v*dt;this.score=Math.floor(this.distance/10);
-   const dx=this.lane*4-this.x;this.x+=Math.sign(dx)*Math.min(Math.abs(dx),13*dt);
+   const dx=this.lane*4-this.x;this.playerVx=Math.sign(dx)*Math.min(Math.abs(dx)/dt,13);this.x+=this.playerVx*dt;
    this.thrusting=this.held&&!this.exhausted&&this.gas>0;this.floor=this.deck();
    if(this.thrusting){this.gas=Math.max(0,this.gas-25*dt);this.altitude=Math.min(8,this.altitude+8.5*dt);if(this.gas<1e-8){this.gas=0;this.exhausted=true;this.thrusting=false;}}
    // Standing on a truck roof counts as being on the ground.
    else{this.altitude=Math.max(this.floor,this.altitude-6*dt);if(this.altitude===this.floor)this.gas=Math.min(100,this.gas+20*dt);}
   }else{
    // After an impact the player's car slides to rest while the rest of the road plays on; distance and score stay frozen.
-   this.crashTime+=dt;this.crashSpeed=Math.max(0,this.crashSpeed-SLIDE*dt);v=this.crashSpeed;this.speed=v*3.6;
+   this.crashTime+=dt;this.crashSpeed=Math.max(0,this.crashSpeed-this.crashDrag*dt);this.x+=this.crashLateral*dt;this.crashLateral*=Math.exp(-4*dt);if(Math.abs(this.crashLateral)<.005)this.crashLateral=0;v=this.crashSpeed;this.speed=v*3.6;
    this.yaw+=this.spin*dt;this.spin*=Math.exp(-2*dt);this.floor=this.deck();this.altitude=Math.max(this.floor,this.altitude-6*dt);
-   if(this.crashTime>=1.5)this.settled=true;
   }
   this.travel+=v*dt;
   this.drive(dt,v);
-  if(!running)return;
+  if(!running){this.speed=this.crashSpeed*3.6;this.settled=this.crashTime>=.8&&this.crashSpeed===0&&this.crashLateral===0;return;}
   for(const list of [this.traffic,this.batteries])for(const o of list)if(this.hit(o)){this.crash(o,v);return;}
   this.direct(dt);
   if(this.trafficEnabled){this.wander(dt,v);this.spawnTraffic(v);}
@@ -243,7 +279,11 @@ export class Game {
   else for(const c of this.traffic)if(c.row)rowSpeed=Math.min(rowSpeed,this.followSpeed(c,dt,v));
   for(const c of this.traffic){
    const was=c.speed;
-   if(c.mode==='crashed'){c.speed=Math.max(0,c.speed-SLIDE*dt);c.yaw+=c.spin*dt;c.spin=c.speed>0?c.spin*Math.exp(-1.8*dt):0;}
+   if(c.mode==='veering'){
+    const p=clamp((this.clock-c.poleStart)/c.poleDuration,0,1),ease=p*p*(3-2*p),target=c.lane*(POLE.x-Math.sin(POLE.angle)*c.length/2);
+    c.x=c.poleFromX+(target-c.poleFromX)*ease;c.yaw=-c.lane*POLE.angle*ease;c.vx=0;
+   }
+   else if(c.mode==='crashed'){c.speed=Math.max(0,c.speed-c.crashDrag*dt);c.x+=c.vx*dt;c.vx*=Math.exp(-4*dt);if(Math.abs(c.vx)<.005)c.vx=0;c.yaw+=c.spin*dt;c.spin=c.speed>0||c.vx?c.spin*Math.exp(-2.8*dt):0;}
    else if(c.mode==='runaway'){if(c.z<0&&this.phase==='running')c.speed=Math.max(c.speed,v+c.closing);}
    else if(c.mode==='broken'){
     // Dragging on the collapsed corner, it scrubs off speed and pulls toward the broken side.
@@ -259,6 +299,18 @@ export class Game {
     if(Math.abs(dx)<=LATERAL*dt){c.x=c.lane*4;c.signal=0;c.vx=0;}else{c.vx=Math.sign(dx)*LATERAL;c.x+=c.vx*dt;}
    }
    c.z+=(c.speed-v)*dt;c.odo+=c.speed*dt;
+   if(c.mode==='veering'){
+    const stop=c.poleWorldZ-this.travel-Math.cos(POLE.angle)*c.length/2-POLE.radius;
+    if(c.z>=stop){
+     c.z=stop;c.x=c.lane*(POLE.x-Math.sin(POLE.angle)*c.length/2);c.yaw=-c.lane*POLE.angle;
+     const impact=c.speed;this.wreck(c,0,impact);c.speed=0;c.vx=0;c.poleHitAt=this.clock;this.cue('crash',c);
+    }
+   }
+   if(c.fireAt>=0){
+    const age=this.clock-c.fireAt;
+    c.smoke=clamp((age-POLE.smokeDelay)/.35,0,1);
+    const fire=clamp((age-POLE.fireDelay)/.25,0,1);if(fire>0&&!c.fire)this.cue('ignite',c);c.fire=fire;
+   }
   }
   for(const b of this.batteries){
    b.age+=dt;const p=clamp(b.age/.55,0,1);
@@ -267,7 +319,7 @@ export class Game {
   }
   this.collideTraffic();
   // While the player's wreck slides, anything running into it crashes too.
-  if(this.phase==='over')for(const o of this.traffic)if(o.mode!=='crashed'&&this.hit(o)){o.speed=Math.min(o.speed,v);this.wreck(o,o.z<0?.6:-.6);this.cue('crash',o);}
+  if(this.phase==='over')for(const o of this.traffic)if(this.hit(o)){const player=this.playerBody(),heading=bodyYaw(o),contact=collisionContact(player,o);if(contact){const fresh=o.mode!=='crashed',severity=resolveImpact(player,o,contact);this.applyPlayerImpact(player);this.wreck(o,o.spin,severity,heading);if(fresh||severity>1)this.cue('crash',o);}}
  }
  // Follow the nearest leader, braking as hard as the remaining distance demands.
  followSpeed(c,dt,v){
@@ -281,18 +333,15 @@ export class Game {
   }
   return target<c.speed?Math.max(target,c.speed-rate*dt):Math.min(target,c.speed+PICKUP*dt);
  }
- // Bodies that touch trade momentum, light their hazards and slide to a stop as wrecks.
+ // The same oriented shapes drive player contacts, traffic impulses and local separation.
  collideTraffic(){
   const bodies=this.batteries.length?this.obstacles():this.traffic;
   for(let i=0;i<bodies.length;i++)for(let j=i+1;j<bodies.length;j++){
-   const a=bodies[i],b=bodies[j];
-   if(a.owner===b.id||b.owner===a.id||Math.abs(a.x-b.x)>=(a.width+b.width)/2-.1||Math.abs(a.z-b.z)>=(a.length+b.length)/2-.05)continue;
-   const [r,f]=a.z<b.z?[a,b]:[b,a],m=r.mass+f.mass,closing=r.speed-f.speed,u=(r.mass*r.speed+f.mass*f.speed)/m;
-   if(closing>0){r.speed=Math.max(0,u-.2*closing*f.mass/m);f.speed=u+.2*closing*r.mass/m;}
-   r.z=f.z-(r.length+f.length)/2+.04;
-   const force=Math.min(1,.3+Math.abs(closing)/25);
-   this.wreck(r,(.5+r.id%5*.12)*force);this.wreck(f,-(.5+f.id%5*.12)*force);
-   if(closing>1)this.cue('crash',f);
+   const a=bodies[i],b=bodies[j];if(a.owner===b.id||b.owner===a.id)continue;
+   const contact=collisionContact(a,b);if(!contact)continue;
+   const headingA=bodyYaw(a),headingB=bodyYaw(b),severity=resolveImpact(a,b,contact);
+   this.wreck(a,a.spin,severity,headingA);this.wreck(b,b.spin,severity,headingB);
+   if(severity>1)this.cue('crash',b);
   }
  }
  direct(dt){

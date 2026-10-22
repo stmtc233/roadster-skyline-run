@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { createRoadster, createMPV, createM9, createSedan, createSU7, createSUV, createTruck, createSemi, createBattery, createTriangle } from './models.js';
 import { AIR_LANE } from './game.js';
+import { bodyYaw } from './collision.js';
+import { createRoadside } from './roadside.js';
 
 const clamp = THREE.MathUtils.clamp;
 const smooth = t=>t*t*t*(t*(t*6-15)+10);
@@ -58,6 +60,7 @@ export function createScene(canvas) {
   const trees=buildTrees(scene);
   buildHills(scene);
   const markers=buildMarkers(scene);
+  const roadside=createRoadside(scene);
 
   // Roll about the chassis centre, keeping the simulation's wheel-bottom altitude unchanged.
   const rollPivot=new THREE.Group(),player=createRoadster();player.position.y=-.6;rollPivot.add(player);scene.add(rollPivot);
@@ -157,6 +160,7 @@ export function createScene(canvas) {
     if(!canvasRect)resize();
     const time=state.clock??state.time??0,travel=state.travel??state.distance??0,altitude=Math.max(0,state.altitude||0);
     const pace=state.pace||0;
+    roadside.update(state);
     const dashOffset=((travel%12)+12)%12;
     for(let i=0;i<132;i++) {
       transform.position.set(i%2===0?-2:2,.007,32-Math.floor(i/2)*12+dashOffset);
@@ -182,7 +186,7 @@ export function createScene(canvas) {
     rollPivot.position.set(px,altitude+.6,0);
     // Pitch expresses thrust; the separate pivot completes the lateral roll.
     player.rotation.x=state.thrusting?-.025:0;
-    player.rotation.y=-((state.lane||0)*4-px)*.025+(state.yaw||0);
+    player.rotation.y=state.phase==='over'?(state.yaw||0):-((state.lane||0)*4-px)*.025;
     const rolling=state.rollRemaining>0;
     // Present the fractional simulation step too, so 144/165 Hz screens do not repeat a 120 Hz pose.
     const moving=state.phase==='running'||(state.phase==='over'&&!state.settled);
@@ -229,11 +233,13 @@ export function createScene(canvas) {
       view.seen=true;
       if(view.paint!==car.color&&view.vehicle.userData.paint){view.vehicle.userData.paint.color.set(car.color);view.paint=car.color;}
       // Crash spin plus a slight steer into lane changes.
-      const yaw=(car.yaw||0)-(car.vx||0)*.045;
+      const yaw=bodyYaw(car);
       view.root.position.set(car.x,0,-car.z);view.vehicle.rotation.y=yaw;view.shadow.rotation.z=yaw;
       // Hard braking dips the nose; the rear rises while the front wheels stay planted.
+      const impactAge=car.crashedAt>=0?time-car.crashedAt:Infinity;
       const pitch=car.mode==='crashed'||car.broken?0:car.flash?-.022:car.brake&&car.speed>0?-.008:0;
       view.pitch+=(pitch-view.pitch)*Math.min(1,dt*10);view.vehicle.rotation.x=view.pitch;view.vehicle.position.y=-view.pitch*car.length*.5;
+      if(impactAge<.6){view.vehicle.rotation.x-=Math.sin(impactAge*25)*.055*Math.exp(-impactAge*5);view.vehicle.position.y+=Math.abs(Math.sin(impactAge*20))*.06*Math.exp(-impactAge*5);}
       spin(view.vehicle,-(car.odo||0)/wheelRadius[view.model]);lights(view,car,time);
       const setBroken=view.vehicle.userData.setBroken;
       if(setBroken&&(car.broken||view.broken)) {
@@ -246,6 +252,11 @@ export function createScene(canvas) {
         const seed=car.id*7.31+k*3.7,flicker=Math.sin(time*97+seed);
         transform.position.set(car.x+Math.sin(seed*2.1+time*40)*car.width*.5,.08+Math.abs(Math.sin(time*61+seed))*.35,-car.z+(k%2?1:-1)*car.length*.45+flicker*.6);
         transform.scale.setScalar(.6+Math.abs(flicker));transform.updateMatrix();sparks.setMatrixAt(sparkCount++,transform.matrix);
+      }
+      if(impactAge<.5)for(let k=0;k<28&&sparkCount<sparks.instanceMatrix.count;k++) {
+        const seed=car.id*3.7+k*2.1,life=(impactAge+k*.013)% .5;
+        transform.position.set(car.x-Math.sin(car.yaw)*car.length*.5+Math.sin(seed)*life*5,.7+Math.sin(seed*1.3)*life*4-life*life*3,-car.z-Math.cos(car.yaw)*car.length*.5+Math.cos(seed)*life*4);
+        transform.scale.setScalar(Math.max(.1,1-life*1.7));transform.updateMatrix();sparks.setMatrixAt(sparkCount++,transform.matrix);
       }
       // A dragged corner throws a tail of sparks back along the road.
       if(car.mode==='broken'&&car.speed>.5) {
